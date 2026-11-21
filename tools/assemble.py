@@ -119,10 +119,156 @@ def path_to_saves(gamedir, save_directory=None):
 
 # Moduli Python del gioco (lib/pythonX.Y della versione PC), dopo la libreria standard.
 if os.environ.get("RENPLAYER_PYLIB"):
-    import sys as _renplayer_sys
     for _renplayer_p in os.environ["RENPLAYER_PYLIB"].split(":"):
-        if _renplayer_p and os.path.isdir(_renplayer_p) and _renplayer_p not in _renplayer_sys.path:
-            _renplayer_sys.path.append(_renplayer_p)
+        if _renplayer_p and os.path.isdir(_renplayer_p) and _renplayer_p not in sys.path:
+            sys.path.append(_renplayer_p)
+
+
+class _RenPlayerGameModules(object):
+    """
+    Ultima risorsa per gli import: cerca il modulo tra i file del gioco, anche
+    dentro gli archivi .rpa e in sottocartelle (es. game/src/saga), che
+    l'importatore standard di Ren'Py non guarda. Carica sia .py sia .pyc.
+    """
+
+    def __init__(self):
+        self.index = None
+
+    def _build(self):
+        if self.index is not None:
+            return self.index
+        loader = sys.modules.get("renpy.loader")
+        files = getattr(loader, "game_files", None) if loader is not None else None
+        if not files:
+            return None
+
+        names = set()
+        tops = {}
+        for _d, fn in files:
+            fn = fn.replace(chr(92), "/")
+            names.add(fn)
+            if not (fn.endswith(".py") or fn.endswith(".pyc")):
+                continue
+            parts = fn.split("/")
+            for i, part in enumerate(parts):
+                if i == len(parts) - 1:
+                    part = part.rpartition(".")[0]
+                if not part or part == "__init__":
+                    continue
+                prefix = "/".join(parts[:i])
+                if prefix:
+                    prefix += "/"
+                old = tops.get(part)
+                if old is None or len(prefix) < len(old):
+                    tops[part] = prefix
+
+        self.index = (names, tops)
+        return self.index
+
+    def _locate(self, fullname):
+        index = self._build()
+        if not index:
+            return None
+        names, tops = index
+        parts = fullname.split(".")
+        prefix = tops.get(parts[0])
+        if prefix is None:
+            return None
+        base = prefix + "/".join(parts)
+        for fn, pkg in ((base + "/__init__.py", True), (base + ".py", False),
+                        (base + "/__init__.pyc", True), (base + ".pyc", False)):
+            if fn in names:
+                return fn, pkg
+        for n in names:
+            if n.startswith(base + "/"):
+                return None, True
+        return None
+
+    def find_module(self, fullname, path=None):
+        if self._locate(fullname):
+            return self
+        return None
+
+    def find_spec(self, fullname, path, target=None):
+        found = self._locate(fullname)
+        if not found:
+            return None
+        import importlib.util
+        return importlib.util.spec_from_loader(fullname, self, is_package=found[1])
+
+    def create_module(self, spec):
+        return None
+
+    def _code(self, fn):
+        if fn is None:
+            return compile("", "<renplayer namespace>", "exec")
+        f = sys.modules["renpy.loader"].load(fn, tl=False)
+        try:
+            data = f.read()
+        finally:
+            f.close()
+        if fn.endswith(".pyc"):
+            import marshal
+            if sys.version_info >= (3, 7):
+                skip = 16
+            elif sys.version_info >= (3, 3):
+                skip = 12
+            else:
+                skip = 8
+            return marshal.loads(data[skip:])
+        import codecs
+        if data.startswith(codecs.BOM_UTF8):
+            data = data[3:]
+        return compile(data, fn, "exec")
+
+    def _prepare(self, module, fullname):
+        fn, pkg = self._locate(fullname)
+        module.__file__ = fn or fullname
+        module.__loader__ = self
+        if pkg:
+            module.__path__ = []
+            module.__package__ = fullname
+        else:
+            module.__package__ = fullname.rpartition(".")[0]
+        print("RenPlayer: modulo %s caricato da %s" % (fullname, fn))
+        return self._code(fn)
+
+    def exec_module(self, module):
+        code = self._prepare(module, module.__name__)
+        exec(code, module.__dict__)
+
+    def load_module(self, fullname):
+        if fullname in sys.modules:
+            return sys.modules[fullname]
+        import types
+        module = types.ModuleType(fullname)
+        sys.modules[fullname] = module
+        try:
+            code = self._prepare(module, fullname)
+            exec(code, module.__dict__)
+        except Exception:
+            del sys.modules[fullname]
+            raise
+        return sys.modules[fullname]
+
+
+sys.meta_path.append(_RenPlayerGameModules())
+# ---------------------------------------------------------------------------
+
+
+'''
+
+
+ENGINE_PATCH = '''
+# --- RenPlayer -------------------------------------------------------------
+# Opzione "motore del gioco": usa la cartella renpy/ della versione PC (copiata
+# in renplayer-engine/) con le parti native di questo runtime.
+_renplayer_engine = os.environ.get("RENPLAYER_ENGINE")
+if _renplayer_engine and os.path.isdir(os.path.join(_renplayer_engine, "renpy")):
+    sys.path.insert(0, _renplayer_engine)
+
+    def path_to_renpy_base():
+        return _renplayer_engine
 # ---------------------------------------------------------------------------
 
 
@@ -139,6 +285,11 @@ def make_main_py(sdk, dest):
         fail("renpy.py ha una forma inattesa: impossibile applicare la patch dei salvataggi.")
 
     src = src.replace(marker, SAVES_PATCH.lstrip("\n") + marker, 1)
+
+    marker2 = "def path_to_logdir"
+    if src.count(marker2) != 1:
+        fail("renpy.py ha una forma inattesa: impossibile applicare la patch del motore.")
+    src = src.replace(marker2, ENGINE_PATCH.lstrip("\n") + marker2, 1)
 
     with open(dest, "w", encoding="utf-8") as f:
         f.write(src)

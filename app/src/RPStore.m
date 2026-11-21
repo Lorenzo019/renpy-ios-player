@@ -75,6 +75,16 @@ NSError *RPError(NSString *message) {
             URLByAppendingPathComponent:@"saves" isDirectory:YES];
 }
 
+- (NSURL *)gameEngineDirectory {
+    return [self.baseDirectory URLByAppendingPathComponent:@"renplayer-engine" isDirectory:YES];
+}
+
+- (BOOL)hasGameEngine {
+    BOOL isDir = NO;
+    NSString *p = [self.gameEngineDirectory URLByAppendingPathComponent:@"renpy"].path;
+    return [[NSFileManager defaultManager] fileExistsAtPath:p isDirectory:&isDir] && isDir;
+}
+
 - (NSURL *)logFile {
     return [self.directory URLByAppendingPathComponent:@"renplayer-log.txt"];
 }
@@ -120,6 +130,7 @@ NSError *RPError(NSString *message) {
     d[@"runtimeOverride"] = @(self.runtimeOverride);
     d[@"confident"] = @(self.confident);
     d[@"newerThanRuntime"] = @(self.newerThanRuntime);
+    d[@"useGameEngine"] = @(self.useGameEngine);
     d[@"evidence"] = self.evidence;
     d[@"gameVersion"] = self.gameVersion;
     d[@"sourceName"] = self.sourceName;
@@ -152,6 +163,7 @@ static NSInteger num(NSDictionary *d, NSString *k) {
     self.runtimeOverride = RPValidRuntime(num(d, @"runtimeOverride")) ? num(d, @"runtimeOverride") : 0;
     self.confident = num(d, @"confident") != 0;
     self.newerThanRuntime = num(d, @"newerThanRuntime") != 0;
+    self.useGameEngine = num(d, @"useGameEngine") != 0;
     self.evidence = str(d, @"evidence");
     self.gameVersion = str(d, @"gameVersion");
     self.sourceName = str(d, @"sourceName");

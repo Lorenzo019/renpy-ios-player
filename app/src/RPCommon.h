@@ -29,6 +29,9 @@ NSString *RPRuntimeShortName(NSInteger rt);
 @property (nonatomic) NSInteger runtimeOverride;       /* 0 = automatico */
 @property (nonatomic) BOOL confident;
 @property (nonatomic) BOOL newerThanRuntime;
+@property (nonatomic) BOOL useGameEngine;              /* usa renplayer-engine/renpy */
+@property (nonatomic, readonly) BOOL hasGameEngine;
+@property (nonatomic, readonly) NSURL *gameEngineDirectory;
 @property (nonatomic, copy) NSString *evidence;
 @property (nonatomic, copy) NSString *gameVersion;
 @property (nonatomic, copy) NSString *sourceName;

@@ -213,6 +213,10 @@ typedef void (^UIGraphicsImageDrawingActions)(UIGraphicsImageRendererContext *re
 - (void)sizeToFit;
 @end
 
+@interface UISwitch : UIControl
+@property (nonatomic, getter=isOn) BOOL on;
+@end
+
 @interface UIScrollView : UIView
 @property (nonatomic) BOOL alwaysBounceVertical;
 @end

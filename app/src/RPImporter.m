@@ -185,6 +185,19 @@ static NSString *root_pymod_dest(const char *path, const char *root) {
     return rel;
 }
 
+/* Cartella renpy/ della versione PC: va in renplayer-engine/ per l'opzione "motore del gioco". */
+static NSString *engine_dest(const char *path, const char *root) {
+    size_t rl = strlen(root);
+    if (strncmp(path, root, rl) || strncmp(path + rl, "renpy/", 6)) {
+        return nil;
+    }
+    NSString *rel = [NSString stringWithUTF8String:path + rl];
+    if (!rel.length || [rel.lastPathComponent hasPrefix:@"._"] || [rel containsString:@"__MACOSX"]) {
+        return nil;
+    }
+    return [@"renplayer-engine/" stringByAppendingString:rel];
+}
+
 /* Nome del modulo mancante dall'ultimo traceback.txt del gioco ("No module named 'saga'"). */
 static NSString *missing_module(RPGame *game) {
     NSURL *tb = [game.baseDirectory URLByAppendingPathComponent:@"traceback.txt"];
@@ -289,6 +302,8 @@ static BOOL path_mentions_module(NSString *path, NSString *name) {
             dest = [NSString stringWithUTF8String:rel];
         } else if (!e->is_dir && (dest = pylib_dest(e->name, a.root))) {
             pymods++;
+        } else if (!e->is_dir) {
+            dest = engine_dest(e->name, a.root);
         }
         if (dest.length) {
             [selected addObject:@(i)];
@@ -457,7 +472,7 @@ static BOOL path_mentions_module(NSString *path, NSString *name) {
         if (rp_should_import(f.UTF8String, a.root, &rel)) {
             relS = [NSString stringWithUTF8String:rel];
         } else {
-            relS = pylib_dest(f.UTF8String, a.root);
+            relS = pylib_dest(f.UTF8String, a.root) ?: engine_dest(f.UTF8String, a.root);
         }
         if (!relS) {
             continue;
@@ -769,6 +784,13 @@ onlyPythonModules:(BOOL)onlyPython
                 return nil;
             }
             BOOL isDir = NO;
+            if ([rel hasPrefix:@"renplayer-engine/"] || [rel hasPrefix:@"renplayer-pylib/"]) {
+                /* Copie gestite da RenPlayer: si sovrascrivono senza backup. */
+                if ([fm fileExistsAtPath:dst.path isDirectory:&isDir] && !isDir) {
+                    [fm removeItemAtURL:dst error:nil];
+                }
+                return dst;
+            }
             if ([fm fileExistsAtPath:dst.path isDirectory:&isDir]) {
                 if (isDir) {
                     noteError(RPError([NSString stringWithFormat:@"%@ è una cartella: non la sostituisco con un file.", rel]));
@@ -849,6 +871,9 @@ onlyPythonModules:(BOOL)onlyPython
                                             relS = nil;
                                         }
                                     }
+                                    if (!relS) {
+                                        relS = engine_dest(f.UTF8String, a.root);
+                                    }
                                 }
                                 if (onlyPython && [f hasPrefix:rootS]) {
                                     observe([f substringFromIndex:rootS.length]);
@@ -927,6 +952,9 @@ onlyPythonModules:(BOOL)onlyPython
                                             relS = nil;
                                         }
                                     }
+                                    if (!relS) {
+                                        relS = engine_dest(e->name, a.root);
+                                    }
                                 }
                                 NSString *nm = [NSString stringWithUTF8String:e->name];
                                 if (onlyPython && [nm hasPrefix:rootS]) {
@@ -974,7 +1002,7 @@ onlyPythonModules:(BOOL)onlyPython
         if (onlyPython && wanted && !providedWanted) {
             NSMutableString *m = [NSMutableString string];
             if (sightings.count == 0) {
-                [m appendFormat:@"Il modulo '%@' che il gioco cerca non è da nessuna parte nello zip: quasi certamente è compilato dentro il motore modificato del gioco (codice nativo per PC), che su iPhone non può funzionare.", wanted];
+                [m appendFormat:@"Il modulo '%@' non è tra i file dello zip. Può essere dentro gli archivi .rpa del gioco (RenPlayer ora lo cerca anche lì all'avvio) oppure dentro il motore modificato del gioco: prova a riavviare il gioco e, se non basta, attiva \"Motore del gioco\" nella scheda.", wanted];
             } else {
                 BOOL native = YES;
                 for (NSString *path in sightings) {

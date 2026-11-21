@@ -259,6 +259,7 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
     [rows addObject:@[ @"Rilevato", [self.game versionDescription] ]];
     [rows addObject:@[ @"Python", self.game.pythonTag.length ? self.game.pythonTag : @"?" ]];
     [rows addObject:@[ @"Runtime", @"" ]];
+    [rows addObject:@[ @"Motore del gioco", @"" ]];
     if (self.game.gameVersion.length) {
         [rows addObject:@[ @"Versione del gioco", self.game.gameVersion ]];
     }
@@ -308,8 +309,11 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
         case RPSecInfo: {
             NSMutableString *s = [NSMutableString stringWithString:g.evidence ?: @""];
             if (!g.confident) {
-                [s appendString:@"\nSe il gioco non parte, prova l'altro runtime."];
+                [s appendString:@"\nSe il gioco non parte, prova un altro runtime."];
             }
+            [s appendString:g.hasGameEngine ?
+             @"\n\n\"Motore del gioco\" usa la parte Python di Ren'Py inclusa nello zip del gioco, con le parti native del runtime scelto: serve per i giochi con un Ren'Py modificato. Deve essere della stessa serie del runtime (es. gioco 8.5 → runtime 8.5)." :
+             @"\n\n\"Motore del gioco\" si attiva dopo \"Recupera moduli Python dallo zip…\" (o importando di nuovo lo zip)."];
             return s;
         }
         case RPSecSaves:
@@ -345,6 +349,15 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
                 [seg addTarget:self action:@selector(runtimeChanged:) forControlEvents:UIControlEventValueChanged];
                 [seg sizeToFit];
                 cell.accessoryView = seg;
+            } else if ([row[0] isEqualToString:@"Motore del gioco"]) {
+                UISwitch *sw = [[UISwitch alloc] init];
+                sw.on = g.useGameEngine && g.hasGameEngine;
+                sw.enabled = g.hasGameEngine;
+                [sw addTarget:self action:@selector(engineChanged:) forControlEvents:UIControlEventValueChanged];
+                cell.accessoryView = sw;
+                if (!g.hasGameEngine) {
+                    cell.textLabel.textColor = [UIColor secondaryLabelColor];
+                }
             } else {
                 cell.detailTextLabel.text = row[1];
                 cell.detailTextLabel.numberOfLines = 2;
@@ -400,6 +413,11 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
     }
 
     return cell;
+}
+
+- (void)engineChanged:(UISwitch *)sw {
+    self.game.useGameEngine = sw.on;
+    [self.game saveMetadata:nil];
 }
 
 - (void)runtimeChanged:(UISegmentedControl *)seg {

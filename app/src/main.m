@@ -122,6 +122,12 @@ static int player_main(int argc, char **argv) {
                 }
             }
         }
+        if (game.useGameEngine && game.hasGameEngine) {
+            setenv("RENPLAYER_ENGINE", game.gameEngineDirectory.fileSystemRepresentation, 1);
+        } else {
+            unsetenv("RENPLAYER_ENGINE");
+        }
+
         if (pylib.count) {
             setenv("RENPLAYER_PYLIB", [pylib componentsJoinedByString:@":"].fileSystemRepresentation, 1);
         } else {
@@ -131,10 +137,11 @@ static int player_main(int argc, char **argv) {
         if (!freopen(game.stderrFile.fileSystemRepresentation, "w", stderr)) {
             NSLog(@"RenPlayer: impossibile redirigere stderr.");
         }
-        fprintf(stderr, "RenPlayer: avvio di %s con Ren'Py %s\nbasedir: %s\nsavedir: %s\npylib: %s\n",
+        fprintf(stderr, "RenPlayer: avvio di %s con Ren'Py %s\nbasedir: %s\nsavedir: %s\npylib: %s\nmotore: %s\n",
                 game.title.UTF8String, game.runtimeVersion.UTF8String,
                 base.fileSystemRepresentation, saves.fileSystemRepresentation,
-                getenv("RENPLAYER_PYLIB") ?: "(nessuno)");
+                getenv("RENPLAYER_PYLIB") ?: "(nessuno)",
+                getenv("RENPLAYER_ENGINE") ?: "incluso nell'app");
 
         /* Se il gioco si chiude entro 30 secondi lo consideriamo un crash di avvio. */
         [RPLauncher markLaunching:game];

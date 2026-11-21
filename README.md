@@ -72,6 +72,13 @@ Nella scheda del gioco, sezione **File del gioco**:
 
 I file `.rpy` vengono compilati da Ren'Py al primo avvio successivo.
 
+Se un gioco cerca un modulo Python che sta dentro i suoi archivi `.rpa` o in una sottocartella di `game/`
+(es. `game/src/saga`), RenPlayer lo trova e lo carica da solo all'avvio (anche se è solo `.pyc`).
+
+**Motore del gioco** (scheda del gioco): usa la cartella `renpy/` inclusa nello zip PC, cioè la parte
+Python di Ren'Py del gioco, con le parti native del runtime scelto. Serve per i giochi con un Ren'Py
+modificato; la versione deve essere della stessa serie del runtime (es. gioco 8.5 → runtime 8.5).
+
 Alcuni giochi tengono moduli Python propri in `lib/pythonX.Y/` (errore tipico: `No module named '…'`).
 RenPlayer li copia da solo durante l'importazione, in `renplayer-pylib/`. Per i giochi importati con
 versioni precedenti dell'app usa **Recupera moduli Python dallo zip…** con lo zip PC originale.
