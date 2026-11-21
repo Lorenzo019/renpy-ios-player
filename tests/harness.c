@@ -76,6 +76,14 @@ int main(int argc, char **argv) {
         return 0;
     }
 
+    if (!strcmp(argv[1], "pylib") && argc >= 4) {
+        char pydir[32] = "";
+        const char *rel = NULL;
+        int r = rp_pylib_entry(argv[2], argv[3], pydir, sizeof(pydir), &rel);
+        printf("%d %s %s\n", r, pydir, r ? rel : "");
+        return 0;
+    }
+
     if (!strcmp(argv[1], "issave")) {
         printf("%d\n", rp_is_save_file(argv[2]));
         return 0;

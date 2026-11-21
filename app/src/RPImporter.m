@@ -117,6 +117,52 @@ static void with_access(NSURL *url, BOOL scoped, void (^body)(NSURL *readable, N
     }
 }
 
+/* File della libreria standard già inclusa nell'app, per cartella ("python3.12"). */
+static NSSet<NSString *> *bundled_stdlib(NSString *pydir) {
+    static NSMutableDictionary<NSString *, NSSet *> *cache;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        cache = [NSMutableDictionary dictionary];
+    });
+
+    @synchronized(cache) {
+        NSSet *s = cache[pydir];
+        if (s) {
+            return s;
+        }
+
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSMutableSet *set = [NSMutableSet set];
+        NSString *rt = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"runtimes"];
+        for (NSString *r in [fm contentsOfDirectoryAtPath:rt error:nil]) {
+            NSString *lib = [[[rt stringByAppendingPathComponent:r] stringByAppendingPathComponent:@"base/lib"]
+                             stringByAppendingPathComponent:pydir];
+            for (NSString *f in [fm enumeratorAtPath:lib]) {
+                [set addObject:f];
+            }
+        }
+
+        cache[pydir] = set;
+        return set;
+    }
+}
+
+/* Se `path` è un modulo Python del gioco (lib/pythonX.Y/...) che non fa parte della
+ * libreria standard inclusa, ritorna dove copiarlo, relativo alla cartella del gioco. */
+static NSString *pylib_dest(const char *path, const char *root) {
+    char pydir[32];
+    const char *rel = NULL;
+    if (!rp_pylib_entry(path, root, pydir, sizeof(pydir), &rel)) {
+        return nil;
+    }
+    NSString *pd = [NSString stringWithUTF8String:pydir];
+    NSString *r = [NSString stringWithUTF8String:rel];
+    if (!pd || !r.length || [bundled_stdlib(pd) containsObject:r]) {
+        return nil;
+    }
+    return [NSString stringWithFormat:@"renplayer-pylib/%@/%@", pd, r];
+}
+
 @implementation RPImporter
 
 + (RPImportTask *)importArchive:(NSURL *)url
@@ -183,15 +229,28 @@ static void with_access(NSURL *url, BOOL scoped, void (^body)(NSURL *readable, N
         return nil;
     }
 
-    /* Quali file copiare e quanto spazio serve. */
-    NSMutableIndexSet *selected = [NSMutableIndexSet indexSet];
+    /* Quali file copiare (cartella game/ e moduli Python del gioco) e quanto spazio serve. */
+    NSMutableArray<NSNumber *> *selected = [NSMutableArray array];
+    NSMutableArray<NSString *> *dests = [NSMutableArray array];
     unsigned long long total = 0;
+    NSUInteger pymods = 0;
     for (size_t i = 0; i < n; i++) {
         const rpzip_entry *e = rpzip_entry_at(zip, i);
-        if (rp_should_import(e->name, a.root, NULL)) {
-            [selected addIndex:i];
+        const char *rel = NULL;
+        NSString *dest = nil;
+        if (rp_should_import(e->name, a.root, &rel)) {
+            dest = [NSString stringWithUTF8String:rel];
+        } else if (!e->is_dir && (dest = pylib_dest(e->name, a.root))) {
+            pymods++;
+        }
+        if (dest.length) {
+            [selected addObject:@(i)];
+            [dests addObject:dest];
             total += e->uncomp_size;
         }
+    }
+    if (pymods) {
+        NSLog(@"RenPlayer: %lu moduli Python del gioco in renplayer-pylib", (unsigned long) pymods);
     }
 
     unsigned long long avail = [RPStore availableBytes];
@@ -221,15 +280,12 @@ static void with_access(NSURL *url, BOOL scoped, void (^body)(NSURL *readable, N
 
     BOOL ok = YES;
 
-    for (NSUInteger i = selected.firstIndex; i != NSNotFound; i = [selected indexGreaterThanIndex:i]) {
+    for (NSUInteger k = 0; k < selected.count; k++) {
         @autoreleasepool {
+            size_t i = selected[k].unsignedLongValue;
             const rpzip_entry *e = rpzip_entry_at(zip, i);
-            const char *rel = NULL;
-            rp_should_import(e->name, a.root, &rel);
-            NSString *relS = rel ? [NSString stringWithUTF8String:rel] : nil;
-            if (!relS) {
-                continue;
-            }
+            NSString *relS = dests[k];
+            const char *rel = relS.UTF8String;
             NSURL *dest = [tmp URLByAppendingPathComponent:relS];
 
             if (e->is_dir) {
@@ -350,10 +406,12 @@ static void with_access(NSURL *url, BOOL scoped, void (^body)(NSURL *readable, N
 
     for (NSString *f in files) {
         const char *rel = NULL;
-        if (!rp_should_import(f.UTF8String, a.root, &rel)) {
-            continue;
+        NSString *relS = nil;
+        if (rp_should_import(f.UTF8String, a.root, &rel)) {
+            relS = [NSString stringWithUTF8String:rel];
+        } else {
+            relS = pylib_dest(f.UTF8String, a.root);
         }
-        NSString *relS = [NSString stringWithUTF8String:rel];
         if (!relS) {
             continue;
         }
@@ -590,6 +648,13 @@ static BOOL skip_junk(NSString *rel) {
 + (void)addFiles:(NSArray<NSURL *> *)urls
           toGame:(RPGame *)game
       completion:(RPSavesCompletion)completion {
+    [self addFiles:urls toGame:game onlyPythonModules:NO completion:completion];
+}
+
++ (void)addFiles:(NSArray<NSURL *> *)urls
+          toGame:(RPGame *)game
+onlyPythonModules:(BOOL)onlyPython
+      completion:(RPSavesCompletion)completion {
     dispatch_async(import_queue(), ^{
         NSFileManager *fm = [NSFileManager defaultManager];
         NSURL *base = game.baseDirectory;
@@ -676,14 +741,16 @@ static BOOL skip_junk(NSString *rel) {
                             if (found) {
                                 /* La cartella contiene game/: la radice corrisponde alla cartella del gioco. */
                                 const char *rel = NULL;
-                                if (!rp_should_import(f.UTF8String, a.root, &rel)) {
-                                    continue;
+                                NSString *relS = nil;
+                                if (!onlyPython && rp_should_import(f.UTF8String, a.root, &rel)) {
+                                    relS = [NSString stringWithUTF8String:rel];
+                                } else {
+                                    relS = pylib_dest(f.UTF8String, a.root);
                                 }
-                                NSString *relS = [NSString stringWithUTF8String:rel];
                                 if (relS) {
                                     copyOne(src, relS);
                                 }
-                            } else {
+                            } else if (!onlyPython) {
                                 NSString *rel = [NSString stringWithFormat:@"game/%@/%@", readable.lastPathComponent, f];
                                 copyOne(src, rel);
                             }
@@ -728,11 +795,12 @@ static BOOL skip_junk(NSString *rel) {
                             NSString *relS = nil;
                             if (found) {
                                 const char *rel = NULL;
-                                if (!rp_should_import(e->name, a.root, &rel)) {
-                                    continue;
+                                if (!onlyPython && rp_should_import(e->name, a.root, &rel)) {
+                                    relS = [NSString stringWithUTF8String:rel];
+                                } else {
+                                    relS = pylib_dest(e->name, a.root);
                                 }
-                                relS = [NSString stringWithUTF8String:rel];
-                            } else {
+                            } else if (!onlyPython) {
                                 NSString *name = [NSString stringWithUTF8String:e->name];
                                 relS = name ? [@"game/" stringByAppendingString:name] : nil;
                             }
@@ -758,14 +826,18 @@ static BOOL skip_junk(NSString *rel) {
                     return;
                 }
 
-                copyOne(readable, [@"game/" stringByAppendingString:readable.lastPathComponent]);
+                if (!onlyPython) {
+                    copyOne(readable, [@"game/" stringByAppendingString:readable.lastPathComponent]);
+                }
             });
         }
 
         NSString *backupRel = backup ? [@"renplayer-backup/" stringByAppendingString:stamp] : nil;
         NSError *rerr = nil;
         if (count == 0) {
-            rerr = firstError ?: RPError(@"Nessun file copiato.");
+            rerr = firstError ?: RPError(onlyPython ?
+                @"Nessun modulo Python aggiuntivo trovato: il gioco usa solo quelli standard di Ren'Py (oppure lo zip non è la versione PC completa)." :
+                @"Nessun file copiato.");
         }
 
         if (count > 0) {

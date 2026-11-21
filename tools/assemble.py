@@ -116,6 +116,13 @@ def path_to_saves(gamedir, save_directory=None):
             return os.environ["RENPLAYER_SAVEDIR"]
         return os.path.join(os.environ.get("RENPLAYER_DATADIR", os.environ["RENPLAYER_SAVEDIR"]), save_directory)
     return _renplayer_path_to_saves(gamedir, save_directory)
+
+# Moduli Python del gioco (lib/pythonX.Y della versione PC), dopo la libreria standard.
+if os.environ.get("RENPLAYER_PYLIB"):
+    import sys as _renplayer_sys
+    for _renplayer_p in os.environ["RENPLAYER_PYLIB"].split(":"):
+        if _renplayer_p and os.path.isdir(_renplayer_p) and _renplayer_p not in _renplayer_sys.path:
+            _renplayer_sys.path.append(_renplayer_p)
 # ---------------------------------------------------------------------------
 
 

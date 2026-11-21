@@ -72,6 +72,10 @@ Nella scheda del gioco, sezione **File del gioco**:
 
 I file `.rpy` vengono compilati da Ren'Py al primo avvio successivo.
 
+Alcuni giochi tengono moduli Python propri in `lib/pythonX.Y/` (errore tipico: `No module named '…'`).
+RenPlayer li copia da solo durante l'importazione, in `renplayer-pylib/`. Per i giochi importati con
+versioni precedenti dell'app usa **Recupera moduli Python dallo zip…** con lo zip PC originale.
+
 ### Dove sono i file
 
 App File › *Sul mio iPhone* › *RenPlayer* › `Games/<nome del gioco>`. Puoi anche copiare lì a mano

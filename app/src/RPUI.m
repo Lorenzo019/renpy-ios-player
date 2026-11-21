@@ -234,7 +234,7 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
 
 @interface RPGameViewController : UITableViewController <UIDocumentPickerDelegate>
 @property (nonatomic, strong) RPGame *game;
-@property (nonatomic) BOOL pickingGameFiles;
+@property (nonatomic) NSInteger pickMode;  /* 0 salvataggi, 1 file del gioco, 2 moduli Python */
 @property (nonatomic, copy) NSArray<NSArray<NSString *> *> *infoRows;
 @end
 
@@ -277,7 +277,7 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
         case RPSecPlay: return 1;
         case RPSecInfo: return (NSInteger) self.infoRows.count;
         case RPSecSaves: return 3;
-        case RPSecFiles: return 2;
+        case RPSecFiles: return 3;
         case RPSecTools: return 1;
         case RPSecDelete: return 1;
     }
@@ -315,7 +315,7 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
         case RPSecSaves:
             return @"Su Windows i salvataggi sono in %APPDATA%\\RenPy\\<nome del gioco> e nella cartella game\\saves del gioco; su Mac in ~/Library/RenPy. Puoi scegliere i file .save e \"persistent\", una cartella o uno zip. I file sostituiti vengono spostati in renplayer-backup.";
         case RPSecFiles:
-            return @"Per mod, traduzioni o file .rpy/.rpa. I file singoli vanno in game/; zip e cartelle che contengono una cartella game/ vengono messi al posto giusto. I file sostituiti finiscono in renplayer-backup. Le parti per Windows (.exe, renpy/, lib/) vengono ignorate.";
+            return @"Per mod, traduzioni o file .rpy/.rpa. I file singoli vanno in game/; zip e cartelle che contengono una cartella game/ vengono messi al posto giusto. I file sostituiti finiscono in renplayer-backup. Le parti per Windows (.exe, renpy/) vengono ignorate.\n\nSe il gioco dà \"No module named …\", usa \"Recupera moduli Python\" con lo zip PC originale: copia i moduli che il gioco tiene in lib/.";
         case RPSecTools:
             return @"traceback.txt e log.txt sono scritti da Ren'Py; renplayer-log.txt contiene l'output di Python.";
     }
@@ -372,6 +372,9 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
             if (indexPath.row == 0) {
                 cell.textLabel.text = @"Aggiungi file al gioco…";
                 cell.imageView.image = [UIImage systemImageNamed:@"doc.badge.plus"];
+            } else if (indexPath.row == 1) {
+                cell.textLabel.text = @"Recupera moduli Python dallo zip…";
+                cell.imageView.image = [UIImage systemImageNamed:@"shippingbox"];
             } else {
                 cell.textLabel.text = @"Apri nell'app File";
                 cell.imageView.image = [UIImage systemImageNamed:@"folder"];
@@ -426,6 +429,8 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
         case RPSecFiles:
             if (indexPath.row == 0) {
                 [self pickGameFiles];
+            } else if (indexPath.row == 1) {
+                [self pickPythonModules];
             } else {
                 [self openInFiles];
             }
@@ -469,8 +474,16 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
     go();
 }
 
+- (void)pickPythonModules {
+    self.pickMode = 2;
+    UIDocumentPickerViewController *p = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[ UTTypeZIP, UTTypeFolder ] asCopy:NO];
+    p.allowsMultipleSelection = NO;
+    p.delegate = self;
+    [self presentViewController:p animated:YES completion:nil];
+}
+
 - (void)pickGameFiles {
-    self.pickingGameFiles = YES;
+    self.pickMode = 1;
     NSArray *types = @[ UTTypeItem, UTTypeFolder ];
     UIDocumentPickerViewController *p = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:types asCopy:NO];
     p.allowsMultipleSelection = YES;
@@ -497,7 +510,7 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
 }
 
 - (void)pickSaves {
-    self.pickingGameFiles = NO;
+    self.pickMode = 0;
     NSArray *types = @[ UTTypeItem, UTTypeFolder ];
     UIDocumentPickerViewController *p = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:types asCopy:NO];
     p.allowsMultipleSelection = YES;
@@ -506,8 +519,8 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
 }
 
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
-    if (self.pickingGameFiles) {
-        [self addGameFiles:urls];
+    if (self.pickMode == 1 || self.pickMode == 2) {
+        [self addGameFiles:urls onlyPython:self.pickMode == 2];
         return;
     }
 
@@ -535,15 +548,15 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
     }];
 }
 
-- (void)addGameFiles:(NSArray<NSURL *> *)urls {
+- (void)addGameFiles:(NSArray<NSURL *> *)urls onlyPython:(BOOL)onlyPython {
     RPProgressViewController *pv = [[RPProgressViewController alloc] init];
     [pv loadViewIfNeeded];
     [self presentViewController:pv animated:YES completion:nil];
-    pv.titleLabel.text = @"Aggiunta dei file";
-    [pv setFraction:0.5 status:@"Copia in corso…"];
+    pv.titleLabel.text = onlyPython ? @"Moduli Python" : @"Aggiunta dei file";
+    [pv setFraction:0.5 status:onlyPython ? @"Lettura dello zip…" : @"Copia in corso…"];
     pv.cancelButton.hidden = YES;
 
-    [RPImporter addFiles:urls toGame:self.game completion:^(NSUInteger count, NSString *backup, NSError *error) {
+    [RPImporter addFiles:urls toGame:self.game onlyPythonModules:onlyPython completion:^(NSUInteger count, NSString *backup, NSError *error) {
         [pv dismissViewControllerAnimated:YES completion:^{
             if (count == 0) {
                 RPAlert(self, @"Nessun file aggiunto", error.localizedDescription ?: @"Errore sconosciuto.");

@@ -332,6 +332,13 @@ def main():
             p = subprocess.run(["unzip", "-t", zw], capture_output=True, text=True)
             check(p.returncode == 0, "unzip -t")
 
+        print("Moduli Python del gioco in lib/")
+        check(run(exe, "pylib", "G/lib/python3.12/saga/__init__.pyc", "G/").strip() == "1 python3.12 saga/__init__.pyc", "lib/python3.12/saga")
+        check(run(exe, "pylib", "G/lib/pythonlib2.7/foo.pyo", "G/").strip() == "1 python2.7 foo.pyo", "lib/pythonlib2.7 -> python2.7")
+        check(run(exe, "pylib", "G/lib/python3.12/saga/_speed.so", "G/").strip().startswith("0"), "moduli nativi esclusi")
+        check(run(exe, "pylib", "G/lib/py3-windows-x86_64/python.exe", "G/").strip().startswith("0"), "binari della piattaforma esclusi")
+        check(run(exe, "pylib", "G/game/x.rpy", "G/").strip().startswith("0"), "file del gioco non sono moduli")
+
         check(run(exe, "issave", "a/1-1-LT1.save").strip() == "1", "riconosce .save")
         check(run(exe, "issave", "persistent").strip() == "1", "riconosce persistent")
         check(run(exe, "issave", "._x.save").strip() == "0", "ignora ._")

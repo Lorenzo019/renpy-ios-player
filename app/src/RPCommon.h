@@ -116,6 +116,13 @@ typedef void (^RPSavesCompletion)(NSUInteger count, NSString *_Nullable backupFo
           toGame:(RPGame *)game
       completion:(RPSavesCompletion)completion;
 
+/* Come sopra; con onlyPythonModules copia solo i moduli Python del gioco
+ * (lib/pythonX.Y/ della versione PC) in renplayer-pylib/. */
++ (void)addFiles:(NSArray<NSURL *> *)urls
+          toGame:(RPGame *)game
+onlyPythonModules:(BOOL)onlyPython
+      completion:(RPSavesCompletion)completion;
+
 @end
 
 /* ------------------------------------------------------------------------ */

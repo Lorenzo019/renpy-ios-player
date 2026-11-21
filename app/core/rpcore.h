@@ -119,6 +119,12 @@ int rp_analyze(const char *const *paths, size_t n, rp_read_fn reader, void *ctx,
  * relativo alla radice. */
 int rp_should_import(const char *path, const char *root, const char **rel);
 
+/* Moduli Python del gioco in lib/pythonX.Y/ (o lib/pythonlibX.Y/): ritorna 1 se
+ * `path` è uno di questi file (esclusi i moduli nativi), mette in `pydir` il nome
+ * normalizzato ("python3.12", "python2.7") e in *rel il percorso dentro la cartella.
+ * Ren'Py li cerca lì; alcuni giochi ci mettono i propri moduli (es. "saga"). */
+int rp_pylib_entry(const char *path, const char *root, char *pydir, size_t pydirlen, const char **rel);
+
 /* Ritorna 1 se il nome (ultimo componente) è un file di salvataggio Ren'Py. */
 int rp_is_save_file(const char *name);
 

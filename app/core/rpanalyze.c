@@ -740,6 +740,55 @@ int rp_should_import(const char *path, const char *root, const char **rel_out) {
     return 1;
 }
 
+int rp_pylib_entry(const char *path, const char *root, char *pydir, size_t pydirlen, const char **rel_out) {
+    size_t rl = strlen(root);
+    if (strncmp(path, root, rl)) {
+        return 0;
+    }
+
+    const char *rel = path + rl;
+    const char *ver;
+
+    if (has_prefix(rel, "lib/pythonlib")) {
+        ver = rel + strlen("lib/pythonlib");
+    } else if (has_prefix(rel, "lib/python")) {
+        ver = rel + strlen("lib/python");
+    } else {
+        return 0;
+    }
+
+    /* "3.12/..." */
+    if (!isdigit((unsigned char) ver[0]) || ver[1] != '.') {
+        return 0;
+    }
+
+    const char *slash = strchr(ver, '/');
+    if (!slash || !slash[1] || (size_t) (slash - ver) > 8) {
+        return 0;
+    }
+
+    const char *inner = slash + 1;
+
+    if (strstr(inner, "__MACOSX/") || has_prefix(base_name(inner), "._")) {
+        return 0;
+    }
+
+    static const char *const native[] = { ".so", ".pyd", ".dylib", ".dll", ".a", ".lib", NULL };
+    for (int k = 0; native[k]; k++) {
+        if (ends_with_ci(inner, native[k])) {
+            return 0;
+        }
+    }
+
+    if (pydir) {
+        snprintf(pydir, pydirlen, "python%.*s", (int) (slash - ver), ver);
+    }
+    if (rel_out) {
+        *rel_out = inner;
+    }
+    return 1;
+}
+
 int rp_is_save_file(const char *name) {
     const char *bn = base_name(name);
     if (has_prefix(bn, "._")) {

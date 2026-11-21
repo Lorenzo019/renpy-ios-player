@@ -107,12 +107,34 @@ static int player_main(int argc, char **argv) {
         setenv("RENPLAYER_LOGFILE", log.fileSystemRepresentation, 1);
         setenv("RENPLAYER_GAME", game.title.UTF8String, 1);
 
+        /* Moduli Python del gioco (lib/pythonX.Y della versione PC) per questo runtime. */
+        NSString *rtlib = [bundle stringByAppendingPathComponent:[NSString stringWithFormat:@"runtimes/rt%d/base/lib", runtime]];
+        NSMutableArray<NSString *> *pylib = [NSMutableArray array];
+        for (NSString *d in [fm contentsOfDirectoryAtPath:rtlib error:nil]) {
+            if (![d hasPrefix:@"python"]) {
+                continue;
+            }
+            NSString *p = [[base stringByAppendingPathComponent:@"renplayer-pylib"] stringByAppendingPathComponent:d];
+            for (NSString *c in @[ p, [p stringByAppendingPathComponent:@"site-packages"] ]) {
+                BOOL isDir = NO;
+                if ([fm fileExistsAtPath:c isDirectory:&isDir] && isDir) {
+                    [pylib addObject:c];
+                }
+            }
+        }
+        if (pylib.count) {
+            setenv("RENPLAYER_PYLIB", [pylib componentsJoinedByString:@":"].fileSystemRepresentation, 1);
+        } else {
+            unsetenv("RENPLAYER_PYLIB");
+        }
+
         if (!freopen(game.stderrFile.fileSystemRepresentation, "w", stderr)) {
             NSLog(@"RenPlayer: impossibile redirigere stderr.");
         }
-        fprintf(stderr, "RenPlayer: avvio di %s con Ren'Py %s\nbasedir: %s\nsavedir: %s\n",
+        fprintf(stderr, "RenPlayer: avvio di %s con Ren'Py %s\nbasedir: %s\nsavedir: %s\npylib: %s\n",
                 game.title.UTF8String, game.runtimeVersion.UTF8String,
-                base.fileSystemRepresentation, saves.fileSystemRepresentation);
+                base.fileSystemRepresentation, saves.fileSystemRepresentation,
+                getenv("RENPLAYER_PYLIB") ?: "(nessuno)");
 
         /* Se il gioco si chiude entro 30 secondi lo consideriamo un crash di avvio. */
         [RPLauncher markLaunching:game];
