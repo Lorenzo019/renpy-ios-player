@@ -61,6 +61,17 @@ Copia sull'iPhone i file `*.save` e `persistent` (anche zippati), poi nella sche
 **Importa salvataggi…**. I file sostituiti vengono spostati in `renplayer-backup/`.
 Ren'Py 8 chiede una conferma la prima volta che carichi un salvataggio creato su un altro dispositivo.
 
+### Mod, traduzioni e file personalizzati
+
+Nella scheda del gioco, sezione **File del gioco**:
+
+- **Aggiungi file al gioco…** — scegli file, cartelle o zip. I file singoli finiscono in `game/`;
+  zip e cartelle che contengono una cartella `game/` vengono estratti al posto giusto. Le parti per
+  Windows (`.exe`, `renpy/`, `lib/`) vengono ignorate e i file sostituiti spostati in `renplayer-backup/`.
+- **Apri nell'app File** — apre direttamente la cartella `game/` del gioco.
+
+I file `.rpy` vengono compilati da Ren'Py al primo avvio successivo.
+
 ### Dove sono i file
 
 App File › *Sul mio iPhone* › *RenPlayer* › `Games/<nome del gioco>`. Puoi anche copiare lì a mano

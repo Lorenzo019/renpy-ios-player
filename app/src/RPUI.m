@@ -226,6 +226,7 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
     RPSecPlay = 0,
     RPSecInfo,
     RPSecSaves,
+    RPSecFiles,
     RPSecTools,
     RPSecDelete,
     RPSecCount,
@@ -233,6 +234,7 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
 
 @interface RPGameViewController : UITableViewController <UIDocumentPickerDelegate>
 @property (nonatomic, strong) RPGame *game;
+@property (nonatomic) BOOL pickingGameFiles;
 @property (nonatomic, copy) NSArray<NSArray<NSString *> *> *infoRows;
 @end
 
@@ -275,6 +277,7 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
         case RPSecPlay: return 1;
         case RPSecInfo: return (NSInteger) self.infoRows.count;
         case RPSecSaves: return 3;
+        case RPSecFiles: return 2;
         case RPSecTools: return 1;
         case RPSecDelete: return 1;
     }
@@ -285,6 +288,7 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
     switch (section) {
         case RPSecInfo: return @"Motore";
         case RPSecSaves: return @"Salvataggi";
+        case RPSecFiles: return @"File del gioco";
         case RPSecTools: return @"Diagnostica";
     }
     return nil;
@@ -310,6 +314,8 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
         }
         case RPSecSaves:
             return @"Su Windows i salvataggi sono in %APPDATA%\\RenPy\\<nome del gioco> e nella cartella game\\saves del gioco; su Mac in ~/Library/RenPy. Puoi scegliere i file .save e \"persistent\", una cartella o uno zip. I file sostituiti vengono spostati in renplayer-backup.";
+        case RPSecFiles:
+            return @"Per mod, traduzioni o file .rpy/.rpa. I file singoli vanno in game/; zip e cartelle che contengono una cartella game/ vengono messi al posto giusto. I file sostituiti finiscono in renplayer-backup. Le parti per Windows (.exe, renpy/, lib/) vengono ignorate.";
         case RPSecTools:
             return @"traceback.txt e log.txt sono scritti da Ren'Py; renplayer-log.txt contiene l'output di Python.";
     }
@@ -362,6 +368,17 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
             }
             break;
 
+        case RPSecFiles:
+            if (indexPath.row == 0) {
+                cell.textLabel.text = @"Aggiungi file al gioco…";
+                cell.imageView.image = [UIImage systemImageNamed:@"doc.badge.plus"];
+            } else {
+                cell.textLabel.text = @"Apri nell'app File";
+                cell.imageView.image = [UIImage systemImageNamed:@"folder"];
+            }
+            cell.textLabel.textColor = self.view.tintColor;
+            break;
+
         case RPSecTools: {
             NSUInteger n = [g logFiles].count;
             cell.textLabel.text = @"Log ed errori";
@@ -406,6 +423,14 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
             }
             break;
 
+        case RPSecFiles:
+            if (indexPath.row == 0) {
+                [self pickGameFiles];
+            } else {
+                [self openInFiles];
+            }
+            break;
+
         case RPSecTools: {
             NSArray *files = [self.game logFiles];
             if (files.count) {
@@ -444,7 +469,35 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
     go();
 }
 
+- (void)pickGameFiles {
+    self.pickingGameFiles = YES;
+    NSArray *types = @[ UTTypeItem, UTTypeFolder ];
+    UIDocumentPickerViewController *p = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:types asCopy:NO];
+    p.allowsMultipleSelection = YES;
+    p.delegate = self;
+    [self presentViewController:p animated:YES completion:nil];
+}
+
+- (void)openInFiles {
+    NSURL *dir = [self.game.baseDirectory URLByAppendingPathComponent:@"game" isDirectory:YES];
+    NSString *path = [dir.path stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]];
+    NSURL *u = path ? [NSURL URLWithString:[@"shareddocuments://" stringByAppendingString:path]] : nil;
+    NSString *hint = [NSString stringWithFormat:@"Apri l'app File › Sul mio iPhone › RenPlayer › Games › %@ › game.", self.game.folderName];
+
+    if (!u) {
+        RPAlert(self, @"Cartella del gioco", hint);
+        return;
+    }
+
+    [[UIApplication sharedApplication] openURL:u options:@{} completionHandler:^(BOOL ok) {
+        if (!ok) {
+            RPAlert(self, @"Cartella del gioco", hint);
+        }
+    }];
+}
+
 - (void)pickSaves {
+    self.pickingGameFiles = NO;
     NSArray *types = @[ UTTypeItem, UTTypeFolder ];
     UIDocumentPickerViewController *p = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:types asCopy:NO];
     p.allowsMultipleSelection = YES;
@@ -453,6 +506,11 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
 }
 
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
+    if (self.pickingGameFiles) {
+        [self addGameFiles:urls];
+        return;
+    }
+
     RPProgressViewController *pv = [[RPProgressViewController alloc] init];
     [pv loadViewIfNeeded];
     [self presentViewController:pv animated:YES completion:nil];
@@ -473,6 +531,34 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
                 RPAlert(self, @"Fatto", m);
             }
             [self.tableView reloadData];
+        }];
+    }];
+}
+
+- (void)addGameFiles:(NSArray<NSURL *> *)urls {
+    RPProgressViewController *pv = [[RPProgressViewController alloc] init];
+    [pv loadViewIfNeeded];
+    [self presentViewController:pv animated:YES completion:nil];
+    pv.titleLabel.text = @"Aggiunta dei file";
+    [pv setFraction:0.5 status:@"Copia in corso…"];
+    pv.cancelButton.hidden = YES;
+
+    [RPImporter addFiles:urls toGame:self.game completion:^(NSUInteger count, NSString *backup, NSError *error) {
+        [pv dismissViewControllerAnimated:YES completion:^{
+            if (count == 0) {
+                RPAlert(self, @"Nessun file aggiunto", error.localizedDescription ?: @"Errore sconosciuto.");
+            } else {
+                NSMutableString *m = [NSMutableString stringWithFormat:@"Aggiunti %lu file al gioco.", (unsigned long) count];
+                if (backup) {
+                    [m appendFormat:@"\n\nI file sostituiti sono in %@: per tornare indietro rimettili al loro posto con l'app File.", backup];
+                }
+                if (error) {
+                    [m appendFormat:@"\n\n⚠️ %@", error.localizedDescription];
+                }
+                [m appendString:@"\n\nI file .rpy vengono compilati al prossimo avvio del gioco."];
+                RPAlert(self, @"Fatto", m);
+            }
+            [self rebuild];
         }];
     }];
 }
@@ -525,8 +611,9 @@ static NSString *RPHelpText(void) {
         @"Se il rilevamento sbaglia, puoi cambiare runtime nella scheda del gioco.\n\n"
         @"SALVATAGGI\n"
         @"Nella scheda del gioco puoi importare i salvataggi dal PC (file .save e persistent) ed esportarli in uno zip.\n\n"
-        @"FILE\n"
-        @"I giochi sono nell'app File › Sul mio iPhone › RenPlayer › Games. Puoi anche copiarci a mano la cartella di un gioco già estratto.\n\n"
+        @"FILE E MOD\n"
+        @"Nella scheda del gioco, \"Aggiungi file al gioco…\" copia mod, traduzioni o file .rpy/.rpa nella cartella game/ (anche da zip) e \"Apri nell'app File\" mostra la cartella del gioco. "
+        @"I giochi sono nell'app File › Sul mio iPhone › RenPlayer › Games: puoi anche copiarci a mano la cartella di un gioco già estratto.\n\n"
         @"TORNARE ALLA LIBRERIA\n"
         @"Mentre un gioco è aperto, chiudi l'app dal multitasking e riaprila.\n\n"
         @"PROBLEMI\n"

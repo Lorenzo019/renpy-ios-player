@@ -577,4 +577,215 @@ static void with_access(NSURL *url, BOOL scoped, void (^body)(NSURL *readable, N
     return out;
 }
 
+/* ------------------------------------------------------------------------ */
+/* File aggiuntivi (mod, traduzioni, .rpy...)                                */
+/* ------------------------------------------------------------------------ */
+
+static BOOL skip_junk(NSString *rel) {
+    NSString *bn = rel.lastPathComponent;
+    return [rel hasPrefix:@"__MACOSX/"] || [rel containsString:@"/__MACOSX/"] || [bn hasPrefix:@"._"] ||
+           [bn isEqualToString:@".DS_Store"] || [bn isEqualToString:@"Thumbs.db"] || [bn isEqualToString:@".renplayer.json"];
+}
+
++ (void)addFiles:(NSArray<NSURL *> *)urls
+          toGame:(RPGame *)game
+      completion:(RPSavesCompletion)completion {
+    dispatch_async(import_queue(), ^{
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSURL *base = game.baseDirectory;
+
+        __block NSUInteger count = 0;
+        __block NSURL *backup = nil;
+        __block NSError *firstError = nil;
+
+        NSDateFormatter *df = [[NSDateFormatter alloc] init];
+        df.dateFormat = @"yyyyMMdd-HHmmss";
+        df.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+        NSString *stamp = [[df stringFromDate:[NSDate date]] stringByAppendingString:@"-file"];
+
+        void (^noteError)(NSError *) = ^(NSError *e) {
+            if (!firstError && e) {
+                firstError = e;
+            }
+        };
+
+        /* Prepara la destinazione (relativa alla cartella del gioco): crea le
+         * cartelle e sposta nel backup un eventuale file già presente. */
+        NSURL * (^prepare)(NSString *) = ^NSURL *(NSString *rel) {
+            NSURL *dst = [base URLByAppendingPathComponent:rel];
+            NSError *e = nil;
+            if (!ensure_parent(dst, &e)) {
+                noteError(e);
+                return nil;
+            }
+            BOOL isDir = NO;
+            if ([fm fileExistsAtPath:dst.path isDirectory:&isDir]) {
+                if (isDir) {
+                    noteError(RPError([NSString stringWithFormat:@"%@ è una cartella: non la sostituisco con un file.", rel]));
+                    return nil;
+                }
+                if (!backup) {
+                    backup = [[game.directory URLByAppendingPathComponent:@"renplayer-backup" isDirectory:YES]
+                              URLByAppendingPathComponent:stamp isDirectory:YES];
+                }
+                NSURL *b = [backup URLByAppendingPathComponent:rel];
+                ensure_parent(b, nil);
+                [fm removeItemAtURL:b error:nil];
+                if (![fm moveItemAtURL:dst toURL:b error:&e]) {
+                    noteError(e);
+                    return nil;
+                }
+            }
+            return dst;
+        };
+
+        void (^copyOne)(NSURL *, NSString *) = ^(NSURL *src, NSString *rel) {
+            if (skip_junk(rel)) {
+                return;
+            }
+            NSURL *dst = prepare(rel);
+            if (!dst) {
+                return;
+            }
+            NSError *e = nil;
+            if ([fm copyItemAtURL:src toURL:dst error:&e]) {
+                count++;
+            } else {
+                noteError(e);
+            }
+        };
+
+        for (NSURL *url in urls) {
+            with_access(url, YES, ^(NSURL *readable, NSError *accessError) {
+                if (accessError) {
+                    noteError(accessError);
+                    return;
+                }
+
+                NSNumber *isDir = nil;
+                [readable getResourceValue:&isDir forKey:NSURLIsDirectoryKey error:nil];
+
+                if (isDir.boolValue) {
+                    rp_analysis a;
+                    NSArray<NSString *> *files = nil;
+                    BOOL found = [RPStore analyzeDirectory:readable analysis:&a files:&files totalSize:NULL];
+
+                    for (NSString *f in files) {
+                        @autoreleasepool {
+                            NSURL *src = [readable URLByAppendingPathComponent:f];
+                            if (found) {
+                                /* La cartella contiene game/: la radice corrisponde alla cartella del gioco. */
+                                const char *rel = NULL;
+                                if (!rp_should_import(f.UTF8String, a.root, &rel)) {
+                                    continue;
+                                }
+                                NSString *relS = [NSString stringWithUTF8String:rel];
+                                if (relS) {
+                                    copyOne(src, relS);
+                                }
+                            } else {
+                                NSString *rel = [NSString stringWithFormat:@"game/%@/%@", readable.lastPathComponent, f];
+                                copyOne(src, rel);
+                            }
+                        }
+                    }
+                    return;
+                }
+
+                if ([readable.pathExtension.lowercaseString isEqualToString:@"zip"]) {
+                    char err[RP_ERRLEN] = "";
+                    rpzip *zip = NULL;
+                    if (rpzip_open(readable.fileSystemRepresentation, &zip, err, sizeof(err))) {
+                        noteError(RPError([NSString stringWithUTF8String:err] ?: @"Zip non valido."));
+                        return;
+                    }
+
+                    size_t n = rpzip_count(zip);
+                    const char **paths = calloc(n ? n : 1, sizeof(char *));
+                    for (size_t i = 0; i < n; i++) {
+                        paths[i] = rpzip_entry_at(zip, i)->name;
+                    }
+                    rp_analysis a;
+                    zipctx zc = { zip };
+                    BOOL found = rp_analyze(paths, n, zip_reader, &zc, &a) == 0;
+                    free(paths);
+
+                    unsigned long long need = rpzip_total_uncompressed(zip);
+                    if ([RPStore availableBytes] < need + 100ull * 1024 * 1024) {
+                        rpzip_close(zip);
+                        noteError(RPError([NSString stringWithFormat:@"Spazio insufficiente per %@ (servono circa %@).",
+                                           readable.lastPathComponent, [RPStore formatBytes:need]]));
+                        return;
+                    }
+
+                    for (size_t i = 0; i < n; i++) {
+                        @autoreleasepool {
+                            const rpzip_entry *e = rpzip_entry_at(zip, i);
+                            if (e->is_dir) {
+                                continue;
+                            }
+
+                            NSString *relS = nil;
+                            if (found) {
+                                const char *rel = NULL;
+                                if (!rp_should_import(e->name, a.root, &rel)) {
+                                    continue;
+                                }
+                                relS = [NSString stringWithUTF8String:rel];
+                            } else {
+                                NSString *name = [NSString stringWithUTF8String:e->name];
+                                relS = name ? [@"game/" stringByAppendingString:name] : nil;
+                            }
+
+                            if (!relS || skip_junk(relS)) {
+                                continue;
+                            }
+
+                            NSURL *dst = prepare(relS);
+                            if (!dst) {
+                                continue;
+                            }
+
+                            if (rpzip_extract_to_file(zip, i, dst.fileSystemRepresentation, NULL, NULL, err, sizeof(err)) == 0) {
+                                count++;
+                            } else {
+                                noteError(RPError([NSString stringWithUTF8String:err] ?: @"Errore nello zip."));
+                            }
+                        }
+                    }
+
+                    rpzip_close(zip);
+                    return;
+                }
+
+                copyOne(readable, [@"game/" stringByAppendingString:readable.lastPathComponent]);
+            });
+        }
+
+        NSString *backupRel = backup ? [@"renplayer-backup/" stringByAppendingString:stamp] : nil;
+        NSError *rerr = nil;
+        if (count == 0) {
+            rerr = firstError ?: RPError(@"Nessun file copiato.");
+        }
+
+        if (count > 0) {
+            /* La dimensione mostrata in libreria va aggiornata. */
+            unsigned long long size = 0;
+            [RPStore analyzeDirectory:game.directory analysis:&(rp_analysis){ 0 } files:NULL totalSize:&size];
+            game.sizeBytes = size;
+            [game saveMetadata:nil];
+        }
+
+        NSError *partial = (count > 0) ? firstError : nil;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (partial) {
+                completion(count, backupRel, RPError([NSString stringWithFormat:@"Copiati %lu file, ma qualcosa non è andato: %@",
+                                                      (unsigned long) count, partial.localizedDescription]));
+            } else {
+                completion(count, backupRel, rerr);
+            }
+        });
+    });
+}
+
 @end

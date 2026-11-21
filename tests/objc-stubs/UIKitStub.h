@@ -365,4 +365,5 @@ typedef void (^UIContextualActionHandler)(UIContextualAction *action, UIView *so
 @interface UIApplication : UIResponder
 @property (class, nonatomic, readonly) UIApplication *sharedApplication;
 @property (nonatomic, getter=isIdleTimerDisabled) BOOL idleTimerDisabled;
+- (void)openURL:(NSURL *)url options:(NSDictionary<UIApplicationOpenURLOptionsKey, id> *)options completionHandler:(void (^ _Nullable)(BOOL success))completion;
 @end

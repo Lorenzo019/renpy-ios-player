@@ -105,6 +105,13 @@ typedef void (^RPSavesCompletion)(NSUInteger count, NSString *_Nullable backupFo
 
 + (nullable NSURL *)exportSavesOfGame:(RPGame *)game error:(NSError **)error;
 
+/* Copia file, cartelle o zip (mod, traduzioni, .rpy...) dentro il gioco.
+ * Zip e cartelle che contengono una cartella game/ vengono estratti al posto
+ * giusto; il resto finisce in game/. I file sostituiti vanno in renplayer-backup. */
++ (void)addFiles:(NSArray<NSURL *> *)urls
+          toGame:(RPGame *)game
+      completion:(RPSavesCompletion)completion;
+
 @end
 
 /* ------------------------------------------------------------------------ */
