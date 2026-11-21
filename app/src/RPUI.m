@@ -181,6 +181,16 @@ static UIViewController *RPTopViewController(UIViewController *vc) {
     NSData *d = [fh readDataToEndOfFile];
     [fh closeFile];
 
+    /* Se abbiamo tagliato l'inizio, salta i byte a metà di un carattere UTF-8. */
+    if (start > 0) {
+        const unsigned char *b = d.bytes;
+        NSUInteger skip = 0;
+        while (skip < d.length && skip < 4 && (b[skip] & 0xC0) == 0x80) {
+            skip++;
+        }
+        d = [d subdataWithRange:NSMakeRange(skip, d.length - skip)];
+    }
+
     NSString *s = [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding];
     if (!s) {
         s = [[NSString alloc] initWithData:d encoding:NSISOLatin1StringEncoding];
