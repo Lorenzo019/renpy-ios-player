@@ -163,6 +163,53 @@ static NSString *pylib_dest(const char *path, const char *root) {
     return [NSString stringWithFormat:@"renplayer-pylib/%@/%@", pd, r];
 }
 
+/* Modulo Python nella radice della distribuzione (fuori da game/, renpy/, lib/). */
+static NSString *root_pymod_dest(const char *path, const char *root) {
+    size_t rl = strlen(root);
+    if (strncmp(path, root, rl)) {
+        return nil;
+    }
+    NSString *rel = [NSString stringWithUTF8String:path + rl];
+    if (!rel.length) {
+        return nil;
+    }
+    NSString *first = [rel componentsSeparatedByString:@"/"].firstObject;
+    NSString *ext = rel.pathExtension.lowercaseString;
+    if ([first isEqualToString:@"game"] || [first isEqualToString:@"renpy"] || [first isEqualToString:@"lib"] ||
+        [first hasSuffix:@".app"] || [first isEqualToString:@"__MACOSX"] || [rel.lastPathComponent hasPrefix:@"._"]) {
+        return nil;
+    }
+    if (![ext isEqualToString:@"py"] && ![ext isEqualToString:@"pyc"] && ![ext isEqualToString:@"pyo"]) {
+        return nil;
+    }
+    return rel;
+}
+
+/* Nome del modulo mancante dall'ultimo traceback.txt del gioco ("No module named 'saga'"). */
+static NSString *missing_module(RPGame *game) {
+    NSURL *tb = [game.baseDirectory URLByAppendingPathComponent:@"traceback.txt"];
+    NSString *s = [NSString stringWithContentsOfURL:tb encoding:NSUTF8StringEncoding error:nil];
+    if (!s) {
+        return nil;
+    }
+    NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:@"No module named '([A-Za-z0-9_.]+)'" options:0 error:nil];
+    NSTextCheckingResult *m = [re firstMatchInString:s options:0 range:NSMakeRange(0, s.length)];
+    if (!m) {
+        return nil;
+    }
+    return [[[s substringWithRange:[m rangeAtIndex:1]] componentsSeparatedByString:@"."] firstObject];
+}
+
+/* Il percorso contiene il modulo `name` (cartella "name/" o file "name.*")? */
+static BOOL path_mentions_module(NSString *path, NSString *name) {
+    for (NSString *c in [path componentsSeparatedByString:@"/"]) {
+        if ([c isEqualToString:name] || [c hasPrefix:[name stringByAppendingString:@"."]]) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
 @implementation RPImporter
 
 + (RPImportTask *)importArchive:(NSURL *)url
@@ -674,6 +721,10 @@ onlyPythonModules:(BOOL)onlyPython
             }
         };
 
+        /* Per la diagnostica: dove compare nello zip il modulo che manca. */
+        NSString *wanted = onlyPython ? missing_module(game) : nil;
+        NSMutableArray<NSString *> *sightings = [NSMutableArray array];
+
         /* Prepara la destinazione (relativa alla cartella del gioco): crea le
          * cartelle e sposta nel backup un eventuale file già presente. */
         NSURL * (^prepare)(NSString *) = ^NSURL *(NSString *rel) {
@@ -746,6 +797,13 @@ onlyPythonModules:(BOOL)onlyPython
                                     relS = [NSString stringWithUTF8String:rel];
                                 } else {
                                     relS = pylib_dest(f.UTF8String, a.root);
+                                    if (!relS && onlyPython) {
+                                        relS = root_pymod_dest(f.UTF8String, a.root);
+                                    }
+                                }
+                                if (wanted && sightings.count < 8 && strlen(f.UTF8String) >= strlen(a.root) &&
+                                    strncmp(f.UTF8String + strlen(a.root), "game/", 5) && path_mentions_module(f, wanted)) {
+                                    [sightings addObject:f];
                                 }
                                 if (relS) {
                                     copyOne(src, relS);
@@ -799,6 +857,14 @@ onlyPythonModules:(BOOL)onlyPython
                                     relS = [NSString stringWithUTF8String:rel];
                                 } else {
                                     relS = pylib_dest(e->name, a.root);
+                                    if (!relS && onlyPython) {
+                                        relS = root_pymod_dest(e->name, a.root);
+                                    }
+                                }
+                                NSString *nm = [NSString stringWithUTF8String:e->name];
+                                if (wanted && nm && sightings.count < 8 && strncmp(e->name + strlen(a.root), "game/", 5) &&
+                                    path_mentions_module(nm, wanted)) {
+                                    [sightings addObject:nm];
                                 }
                             } else if (!onlyPython) {
                                 NSString *name = [NSString stringWithUTF8String:e->name];
@@ -835,9 +901,28 @@ onlyPythonModules:(BOOL)onlyPython
         NSString *backupRel = backup ? [@"renplayer-backup/" stringByAppendingString:stamp] : nil;
         NSError *rerr = nil;
         if (count == 0) {
-            rerr = firstError ?: RPError(onlyPython ?
-                @"Nessun modulo Python aggiuntivo trovato: il gioco usa solo quelli standard di Ren'Py (oppure lo zip non è la versione PC completa)." :
-                @"Nessun file copiato.");
+            NSString *msg = @"Nessun file copiato.";
+            if (onlyPython) {
+                msg = @"Nessun modulo Python aggiuntivo trovato: il gioco usa solo quelli standard di Ren'Py (oppure lo zip non è la versione PC completa).";
+                if (wanted) {
+                    if (sightings.count == 0) {
+                        msg = [NSString stringWithFormat:@"Il modulo '%@' richiesto dal gioco non è da nessuna parte nello zip. Quasi certamente è compilato dentro il motore modificato del gioco (lib/py3-…/librenpython): è codice nativo per PC e su iPhone non può funzionare.", wanted];
+                    } else {
+                        BOOL native = YES;
+                        for (NSString *p in sightings) {
+                            NSString *ext = p.pathExtension.lowercaseString;
+                            if (!([ext isEqualToString:@"pyd"] || [ext isEqualToString:@"so"] || [ext isEqualToString:@"dll"] || [ext isEqualToString:@"dylib"])) {
+                                native = NO;
+                            }
+                        }
+                        msg = [NSString stringWithFormat:@"Il modulo '%@' si trova qui nello zip:\n%@\n\n%@", wanted,
+                               [sightings componentsJoinedByString:@"\n"],
+                               native ? @"È codice nativo compilato per PC (Windows/Linux/Mac): su iPhone non può funzionare." :
+                                        @"Mandami questi percorsi: RenPlayer non lo copia ancora da lì."];
+                    }
+                }
+            }
+            rerr = firstError ?: RPError(msg);
         }
 
         if (count > 0) {

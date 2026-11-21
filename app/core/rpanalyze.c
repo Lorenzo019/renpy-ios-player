@@ -724,7 +724,9 @@ int rp_should_import(const char *path, const char *root, const char **rel_out) {
 
     if (!slash) {
         static const char *const skip[] = {
-            ".exe", ".sh", ".py", ".pyo", ".pyc", ".dll", ".so", ".dylib", ".command", ".bat", ".pdb",
+            /* I .py/.pyc nella radice restano: alcuni giochi ci tengono moduli propri
+             * (la radice è nel sys.path di Ren'Py). */
+            ".exe", ".sh", ".dll", ".so", ".dylib", ".command", ".bat", ".pdb",
             NULL,
         };
         for (int k = 0; skip[k]; k++) {

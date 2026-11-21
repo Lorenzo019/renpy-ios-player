@@ -132,7 +132,7 @@ def main():
         out = run(exe, "extract", z8, dest)
         check(out.startswith("copied="), out.strip())
         got = sorted(os.path.relpath(os.path.join(dp, f), dest) for dp, dn, fn in os.walk(dest) for f in fn)
-        check(got == ["README.txt", "game/archive.rpa", "game/options.rpy", "game/saves/persistent", "game/script.rpyc"], "file importati %r" % got)
+        check(got == ["MyGame.py", "README.txt", "game/archive.rpa", "game/options.rpy", "game/saves/persistent", "game/script.rpyc"], "file importati %r" % got)
         with open(os.path.join(dest, "game/archive.rpa"), "rb") as f:
             check(f.read() == rpa, "contenuto .rpa identico")
 
@@ -254,7 +254,7 @@ def main():
                 f.write(g.read())
         dest = os.path.join(tmp, "outp")
         out = run(exe, "extract", zp, dest)
-        check(out.startswith("copied=5"), out.strip())
+        check(out.startswith("copied=6"), out.strip())
 
         # ------------------------------------------------------------------
         print("Nomi CP437, backslash, percorsi pericolosi")
