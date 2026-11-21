@@ -1,0 +1,105 @@
+name: Build RenPlayer
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths-ignore: ["**.md"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  RENPY7: "7.8.7"
+  RENPY8: "8.3.7"
+
+jobs:
+  core-tests:
+    name: Test del codice C (zip e rilevamento)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tests/test_core.py
+
+  ipa:
+    name: Compila l'IPA
+    needs: core-tests
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Strumenti
+        run: |
+          xcodebuild -version
+          python3 --version
+
+      - name: Cache dei download di Ren'Py
+        uses: actions/cache@v4
+        with:
+          path: downloads
+          key: renpy-${{ env.RENPY7 }}-${{ env.RENPY8 }}-v1
+
+      - name: Scarica Ren'Py ${{ env.RENPY7 }} e ${{ env.RENPY8 }}
+        run: bash tools/fetch_renpy.sh downloads work
+
+      - name: Test del codice C anche su macOS
+        run: python3 tests/test_core.py
+
+      - name: Prepara il progetto Xcode
+        run: |
+          python3 tools/assemble.py \
+            --renios7 work/renios7 --renios8 work/renios8 \
+            --sdk7 work/sdk7 --sdk8 work/sdk8 \
+            --out build/RenPlayer \
+            --version "1.0.${{ github.run_number }}"
+
+      - name: Compila
+        run: |
+          status=0
+          xcodebuild \
+            -project build/RenPlayer/RenPlayer.xcodeproj \
+            -target RenPlayer \
+            -configuration Release \
+            -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            SYMROOT="$PWD/build/xc" \
+            build > build/xcodebuild.log 2>&1 || status=$?
+          grep -E "error:|warning: .*(RP|rp)[A-Za-z]*\.(m|c)|duplicate symbol|Undefined symbol|ld: |\*\* BUILD" build/xcodebuild.log | head -200 || true
+          if [ "$status" != "0" ]; then
+            echo "---- ultime righe del log ----"
+            tail -80 build/xcodebuild.log
+          fi
+          exit $status
+
+      - name: Controlli sull'app
+        run: bash tools/check_app.sh build/xc/Release-iphoneos/RenPlayer.app
+
+      - name: Crea l'IPA
+        run: |
+          mkdir -p build/ipa/Payload
+          cp -R build/xc/Release-iphoneos/RenPlayer.app build/ipa/Payload/
+          (cd build/ipa && zip -qry ../RenPlayer.ipa Payload)
+          ls -lh build/RenPlayer.ipa
+
+      - name: Carica l'IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: RenPlayer-ipa
+          path: build/RenPlayer.ipa
+          compression-level: 0
+
+      - name: Carica i log di build
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build/xcodebuild.log
+          if-no-files-found: ignore
+
+      - name: Release (solo sui tag v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/RenPlayer.ipa

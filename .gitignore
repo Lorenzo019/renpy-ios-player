@@ -1,0 +1,6 @@
+downloads/
+work/
+build/
+*.ipa
+.DS_Store
+__pycache__/
