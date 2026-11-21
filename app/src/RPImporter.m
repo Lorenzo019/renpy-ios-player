@@ -801,7 +801,7 @@ onlyPythonModules:(BOOL)onlyPython
                                         relS = root_pymod_dest(f.UTF8String, a.root);
                                     }
                                 }
-                                if (wanted && sightings.count < 8 && strlen(f.UTF8String) >= strlen(a.root) &&
+                                if (wanted && sightings.count < 8 && strncmp(f.UTF8String, a.root, strlen(a.root)) == 0 &&
                                     strncmp(f.UTF8String + strlen(a.root), "game/", 5) && path_mentions_module(f, wanted)) {
                                     [sightings addObject:f];
                                 }
@@ -862,7 +862,8 @@ onlyPythonModules:(BOOL)onlyPython
                                     }
                                 }
                                 NSString *nm = [NSString stringWithUTF8String:e->name];
-                                if (wanted && nm && sightings.count < 8 && strncmp(e->name + strlen(a.root), "game/", 5) &&
+                                if (wanted && nm && sightings.count < 8 && strncmp(e->name, a.root, strlen(a.root)) == 0 &&
+                                    strncmp(e->name + strlen(a.root), "game/", 5) &&
                                     path_mentions_module(nm, wanted)) {
                                     [sightings addObject:nm];
                                 }
