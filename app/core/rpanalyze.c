@@ -395,6 +395,57 @@ static int scan_assignment(const unsigned char *buf, size_t len, const char *key
 
 /* ------------------------------------------------------------------------ */
 
+const char *rp_runtime_version(int runtime) {
+    if (runtime == 7) {
+        return RP_RUNTIME7_VERSION;
+    }
+    if (runtime == 85) {
+        return RP_RUNTIME85_VERSION;
+    }
+    return RP_RUNTIME8_VERSION;
+}
+
+int rp_choose_runtime(const char *version, int py_major, const char *py_tag, int *newer) {
+    int vmaj = 0;
+    int vmin = 0;
+    int tagmin = -1;
+    int rt;
+
+    if (version && version[0]) {
+        sscanf(version, "%d.%d", &vmaj, &vmin);
+    }
+    if (py_tag && py_tag[0] == '3' && py_tag[1] == '.') {
+        tagmin = atoi(py_tag + 2);
+    }
+
+    if (py_major == 2 || (vmaj >= 6 && vmaj <= 7)) {
+        rt = 7;
+    } else if (vmaj > 8 || (vmaj == 8 && vmin >= 4)) {
+        /* Ren'Py 8.4+ usa Python 3.12. */
+        rt = 85;
+    } else if (vmaj == 8) {
+        rt = 8;
+    } else if (tagmin >= 10) {
+        rt = 85;
+    } else {
+        rt = 8;
+    }
+
+    if (newer) {
+        *newer = 0;
+        const char *rv = rp_runtime_version(rt);
+        if (vmaj) {
+            if (vmaj > atoi(rv) || (vmaj == atoi(rv) && rp_version_compare3(version, rv) > 0)) {
+                *newer = 1;
+            }
+        } else if (rt == 85 && tagmin > 12) {
+            *newer = 1;
+        }
+    }
+
+    return rt;
+}
+
 int rp_version_compare3(const char *a, const char *b) {
     int va[3] = { 0, 0, 0 };
     int vb[3] = { 0, 0, 0 };
@@ -611,26 +662,8 @@ int rp_analyze(const char *const *paths, size_t n, rp_read_fn reader, void *ctx,
     }
     snprintf(out->py_tag, sizeof(out->py_tag), "%s", tag);
 
-    if (out->py_major == 2) {
-        out->runtime = 7;
-        out->confident = 1;
-    } else if (out->py_major == 3) {
-        out->runtime = 8;
-        out->confident = 1;
-    } else {
-        out->runtime = 8;
-        out->confident = 0;
-    }
-
-    if (out->version[0]) {
-        const char *rt = out->runtime == 7 ? RP_RUNTIME7_VERSION : RP_RUNTIME8_VERSION;
-        if (atoi(out->version) == atoi(rt) && rp_version_compare3(out->version, rt) > 0) {
-            out->newer_than_runtime = 1;
-        }
-    } else if (out->py_major == 3 && out->py_tag[0] == '3' && atoi(out->py_tag + 2) >= 10) {
-        /* Python 3.10+ = Ren'Py 8.4 o successivo. */
-        out->newer_than_runtime = 1;
-    }
+    out->runtime = rp_choose_runtime(out->version, out->py_major, out->py_tag, &out->newer_than_runtime);
+    out->confident = out->py_major != 0;
 
     /* --- Spiegazione --------------------------------------------------------- */
     out->evidence[0] = 0;

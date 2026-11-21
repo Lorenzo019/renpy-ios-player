@@ -137,7 +137,7 @@ def main():
             check(f.read() == rpa, "contenuto .rpa identico")
 
         # ------------------------------------------------------------------
-        print("Ren'Py 8.5 (Python 3.12) -> più nuovo del runtime")
+        print("Ren'Py 8.5 (Python 3.12) -> runtime 8.5")
         z85 = os.path.join(tmp, "g85.zip")
         make_zip(z85, {
             "New-2.0-pc/game/script.rpyc": b"x",
@@ -146,8 +146,28 @@ def main():
         })
         a = analyze(exe, z85)
         check(a["version"] == "8.5.2.26010301", "versione " + a["version"])
-        check(a["runtime"] == "8" and a["newer"] == "1", "runtime 8, segnalato più nuovo")
+        check(a["runtime"] == "85" and a["newer"] == "0", "runtime 8.5, non più nuovo (%s %s)" % (a["runtime"], a["newer"]))
         check(a["py_tag"] == "3.12", "tag " + a["py_tag"])
+
+        print("Ren'Py 8.6 -> runtime 8.5 ma segnalato più nuovo")
+        z86 = os.path.join(tmp, "g86.zip")
+        make_zip(z86, {
+            "N/game/script.rpyc": b"x",
+            "N/renpy/__pycache__/vc_version.cpython-312.pyc": pyc_bytes(tmp, "version = '8.6.1.26111705'\n"),
+            "N/lib/python3.12/site.pyc": b"x",
+        })
+        a = analyze(exe, z86)
+        check(a["runtime"] == "85" and a["newer"] == "1", "runtime %s newer %s" % (a["runtime"], a["newer"]))
+
+        print("Ren'Py 8.4 senza versione esatta (solo lib/python3.12)")
+        z84 = os.path.join(tmp, "g84.zip")
+        make_zip(z84, {
+            "M/game/script.rpyc": b"x",
+            "M/lib/python3.12/site.pyc": b"x",
+            "M/lib/py3-windows-x86_64/x.exe": b"x",
+        })
+        a = analyze(exe, z84)
+        check(a["runtime"] == "85" and a["newer"] == "0" and a["py_tag"] == "3.12", "runtime %s tag %s" % (a["runtime"], a["py_tag"]))
 
         # ------------------------------------------------------------------
         print("Ren'Py 7.4 (pyo, lib/py2-*, senza versione esatta)")

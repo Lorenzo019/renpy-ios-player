@@ -30,9 +30,8 @@ REPO = os.path.dirname(HERE)
 
 PRODUCT = "RenPlayer"
 RP7_SYMBOL = "_rp7_lnch_main"
+RP85_SYMBOL = "_rp85lnch_main"
 ORIG_SYMBOL = "_launcher_main"
-
-assert len(RP7_SYMBOL) == len(ORIG_SYMBOL)
 
 
 def log(*args):
@@ -68,6 +67,15 @@ def renios_prototype(path):
         if os.path.exists(os.path.join(cand, "prototype.xcodeproj", "project.pbxproj")):
             return cand
     fail("renios/prototype non trovato in " + path)
+
+
+def python_version(proto):
+    rel = os.path.join(proto, "prebuilt", "release")
+    for f in sorted(os.listdir(rel)):
+        m = re.fullmatch(r"libpython(\d\.\d+)\.a", f)
+        if m:
+            return m.group(1)
+    fail("libpythonX.Y.a non trovata in " + rel)
 
 
 def sdk_version(root):
@@ -217,15 +225,19 @@ def nm(args, obj):
     return p.stdout.splitlines()
 
 
-def verify_prelink(obj):
+def verify_prelink(obj, symbol, forbidden=frozenset()):
     defined = [l.split()[-1] for l in nm(["-gU"], obj) if l.strip()]
-    if defined != [RP7_SYMBOL]:
+    if defined != [symbol]:
         return "simboli esterni definiti inattesi: %r" % defined[:20]
 
     undefined = [l.split()[-1] for l in nm(["-u"], obj) if l.strip()]
     bad = [s for s in undefined if re.match(r"^_(_?Py|init_librenpy|launcher_main|Py_)", s)]
     if bad:
-        return "simboli Python non risolti dentro rp7.o (finirebbero su Python 3!): %r" % bad[:20]
+        return "simboli Python non risolti (finirebbero sul Python sbagliato!): %r" % bad[:20]
+
+    clash = sorted(set(undefined) & forbidden)
+    if clash:
+        return "simboli non risolti che finirebbero sulle librerie C di un altro runtime: %r" % clash[:20]
 
     private = [l for l in nm(["-m"], obj) if "private external" in l and "was a private external" not in l]
     if private:
@@ -234,10 +246,10 @@ def verify_prelink(obj):
     return None
 
 
-def rename_symbol(obj):
+def rename_symbol(obj, symbol):
     data = open(obj, "rb").read()
     old = b"\x00" + ORIG_SYMBOL.encode() + b"\x00"
-    new = b"\x00" + RP7_SYMBOL.encode() + b"\x00"
+    new = b"\x00" + symbol.encode() + b"\x00"
     n = data.count(old)
     if n != 1:
         raise Exception("trovate %d occorrenze di %s nella tabella dei simboli" % (n, ORIG_SYMBOL))
@@ -245,8 +257,24 @@ def rename_symbol(obj):
         f.write(data.replace(old, new))
 
 
-def prelink(libdir, out, minos):
-    libs = [os.path.join(libdir, n) for n in ("librenpython.a", "librenpy.a", "libpython2.7.a")]
+def defined_symbols(libs):
+    """Simboli globali definiti in una serie di librerie statiche."""
+    rv = set()
+    for l in libs:
+        for line in nm(["-gUj"], l):
+            line = line.strip()
+            if line and not line.endswith(":"):
+                rv.add(line)
+    return rv
+
+
+def prelink(name, libs, symbol, out, minos, forbidden=frozenset()):
+    """
+    Unisce le librerie di un runtime in un unico oggetto con tutti i simboli
+    nascosti tranne il punto di ingresso, rinominato in `symbol`.
+    """
+    assert len(symbol) == len(ORIG_SYMBOL)
+
     for l in libs:
         if not os.path.exists(l):
             fail("Manca " + l)
@@ -266,34 +294,43 @@ def prelink(libdir, out, minos):
                 if force_common:
                     cmd.append("-Wl,-d")
                 if mode == "alias":
-                    cmd += ["-Wl,-alias," + ORIG_SYMBOL + "," + RP7_SYMBOL, "-Wl,-exported_symbol," + RP7_SYMBOL]
+                    cmd += ["-Wl,-alias," + ORIG_SYMBOL + "," + symbol, "-Wl,-exported_symbol," + symbol]
                 else:
                     cmd += ["-Wl,-exported_symbol," + ORIG_SYMBOL]
                 cmd += libs + ["-o", out]
                 attempts.append(("%s%s%s" % (mode, "+classic" if classic else "", "+d" if force_common else ""), mode, cmd))
 
     errors = []
-    for name, mode, cmd in attempts:
+    for aname, mode, cmd in attempts:
         if os.path.exists(out):
             os.unlink(out)
         try:
             run(cmd)
             if mode == "rename":
-                rename_symbol(out)
-            problem = verify_prelink(out)
+                rename_symbol(out, symbol)
+            problem = verify_prelink(out, symbol, forbidden)
             if problem:
-                errors.append("%s: %s" % (name, problem))
+                errors.append("%s: %s" % (aname, problem))
                 continue
-            log("prelink Ren'Py 7 riuscito (%s): %s, %.1f MB" % (name, out, os.path.getsize(out) / 1e6))
+            log("prelink %s riuscito (%s): %s, %.1f MB" % (name, aname, out, os.path.getsize(out) / 1e6))
             return
         except subprocess.CalledProcessError as e:
-            errors.append("%s: ld ha fallito: %s" % (name, (e.stderr or e.stdout or "").strip()[-800:]))
+            errors.append("%s: ld ha fallito: %s" % (aname, (e.stderr or e.stdout or "").strip()[-800:]))
         except Exception as e:
-            errors.append("%s: %s" % (name, e))
+            errors.append("%s: %s" % (aname, e))
 
     for e in errors:
         print("  -", e, file=sys.stderr)
-    fail("prelink di Ren'Py 7 non riuscito con nessuna strategia.")
+    fail("prelink di %s non riuscito con nessuna strategia." % name)
+
+
+SHARED_LIBS = ("libSDL2.a", "libSDL2_image.a")
+RUNTIME_LIBS = ("librenpython.a", "librenpy.a")
+
+
+def c_libs(libdir):
+    return sorted(f for f in os.listdir(libdir)
+                  if f.endswith(".a") and f not in RUNTIME_LIBS and not f.startswith("libpython"))
 
 
 # --------------------------------------------------------------------------
@@ -362,15 +399,20 @@ def rewrite_ldflags(pbx):
         out = []
         for f in flags:
             if f.startswith("-lpython"):
-                out.append("-lpython3.9")
-                out.append("$(SRCROOT)/rt7/rp7.o")
+                if "-lpython3.9" not in out:
+                    out.append("-lpython3.9")
+                    out.append("$(SRCROOT)/rt7/rp7.o")
+                    out.append("$(SRCROOT)/rt85/rp85.o")
+            elif f in ("-lstdc++", "-lc++"):
+                continue
             else:
                 out.append(f)
+        out.append("-lc++")
         lines = "".join('\t\t\t\t\t"%s",\n' % f for f in out)
         return "OTHER_LDFLAGS = (\n%s\t\t\t\t);" % lines
 
     new, n = re.subn(r"OTHER_LDFLAGS = \((.*?)\);", repl, pbx, flags=re.S)
-    if new.count("rt7/rp7.o") < 2:
+    if new.count("rt7/rp7.o") < 2 or new.count("rt85/rp85.o") < 2:
         fail("OTHER_LDFLAGS non aggiornati (%d)" % new.count("rt7/rp7.o"))
     return new
 
@@ -486,6 +528,8 @@ def main():
     ap.add_argument("--renios8", required=True)
     ap.add_argument("--sdk7", required=True)
     ap.add_argument("--sdk8", required=True)
+    ap.add_argument("--renios85", required=True)
+    ap.add_argument("--sdk85", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--app", default=os.path.join(REPO, "app"))
     ap.add_argument("--bundle-id", default="io.github.renplayer")
@@ -496,13 +540,17 @@ def main():
 
     proto8 = renios_prototype(args.renios8)
     proto7 = renios_prototype(args.renios7)
+    proto85 = renios_prototype(args.renios85)
     sdk8 = sdk_root(args.sdk8)
     sdk7 = sdk_root(args.sdk7)
+    sdk85 = sdk_root(args.sdk85)
 
     v8 = sdk_version(sdk8)
     v7 = sdk_version(sdk7)
+    v85 = sdk_version(sdk85)
     log("Ren'Py 8:", v8, sdk8)
     log("Ren'Py 7:", v7, sdk7)
+    log("Ren'Py 8.5:", v85, sdk85)
 
     out = args.out
     if os.path.exists(out):
@@ -539,6 +587,7 @@ def main():
     with open(os.path.join(out, "rpconfig.h"), "w") as f:
         f.write('#define RP_RUNTIME7_VERSION "%s"\n' % ".".join(v7.split(".")[:3]))
         f.write('#define RP_RUNTIME8_VERSION "%s"\n' % ".".join(v8.split(".")[:3]))
+        f.write('#define RP_RUNTIME85_VERSION "%s"\n' % ".".join(v85.split(".")[:3]))
     sources.append("rpconfig.h")
 
     # 3. Progetto Xcode.
@@ -558,14 +607,28 @@ def main():
     runtimes = os.path.join(out, "runtimes")
     build_base(sdk8, "3.9", os.path.join(runtimes, "rt8", "base"))
     build_base(sdk7, "2.7", os.path.join(runtimes, "rt7", "base"))
+    build_base(sdk85, python_version(proto85), os.path.join(runtimes, "rt85", "base"))
     with open(os.path.join(runtimes, "versions.json"), "w") as f:
-        json.dump({"rt7": v7, "rt8": v8}, f)
+        json.dump({"rt7": v7, "rt8": v8, "rt85": v85}, f)
 
     # 5. Ren'Py 7 prelinkato.
+    rel85 = os.path.join(proto85, "prebuilt", "release")
+    py85 = python_version(proto85)
+
     if args.skip_prelink:
         log("prelink saltato (--skip-prelink)")
     else:
-        prelink(rel7, os.path.join(out, "rt7", "rp7.o"), args.minos)
+        # Ren'Py 7: stesse librerie C di Ren'Py 8.3 (stessa build), solo Python e renpy.
+        prelink("Ren'Py 7", [os.path.join(rel7, n) for n in ("librenpython.a", "librenpy.a", "libpython2.7.a")],
+                RP7_SYMBOL, os.path.join(out, "rt7", "rp7.o"), args.minos)
+
+        # Ren'Py 8.5: build diversa, porta con sé tutte le sue librerie C tranne SDL2,
+        # che deve essere unica (registra classi Objective-C) ed è la stessa versione.
+        libs85 = [os.path.join(rel85, n) for n in ("librenpython.a", "librenpy.a", "libpython%s.a" % py85)]
+        libs85 += [os.path.join(rel85, n) for n in c_libs(rel85) if n not in SHARED_LIBS]
+        forbidden = defined_symbols([os.path.join(rel8, n) for n in c_libs(rel8) if n not in SHARED_LIBS])
+        log("Ren'Py 8.5: %d librerie, %d simboli C di 8.3 da non toccare" % (len(libs85), len(forbidden)))
+        prelink("Ren'Py 8.5", libs85, RP85_SYMBOL, os.path.join(out, "rt85", "rp85.o"), args.minos, forbidden)
 
     log("progetto pronto:", xcp)
 

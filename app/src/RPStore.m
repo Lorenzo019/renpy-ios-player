@@ -14,6 +14,14 @@ NSString *const RPErrorDomain = @"RenPlayer";
 
 static NSString *const kMetaName = @".renplayer.json";
 
+BOOL RPValidRuntime(NSInteger rt) {
+    return rt == 7 || rt == 8 || rt == 85;
+}
+
+NSString *RPRuntimeShortName(NSInteger rt) {
+    return rt == 7 ? @"7.8" : (rt == 85 ? @"8.5" : @"8.3");
+}
+
 NSError *RPError(NSString *message) {
     return [NSError errorWithDomain:RPErrorDomain code:1 userInfo:@{ NSLocalizedDescriptionKey : message }];
 }
@@ -37,14 +45,14 @@ NSError *RPError(NSString *message) {
 }
 
 - (NSInteger)runtime {
-    if (self.runtimeOverride == 7 || self.runtimeOverride == 8) {
+    if (RPValidRuntime(self.runtimeOverride)) {
         return self.runtimeOverride;
     }
-    return self.detectedRuntime == 7 ? 7 : 8;
+    return RPValidRuntime(self.detectedRuntime) ? self.detectedRuntime : 8;
 }
 
 - (NSString *)runtimeVersion {
-    return self.runtime == 7 ? @RP_RUNTIME7_VERSION : @RP_RUNTIME8_VERSION;
+    return [NSString stringWithUTF8String:rp_runtime_version((int) self.runtime)];
 }
 
 - (NSURL *)directory {
@@ -84,7 +92,8 @@ NSError *RPError(NSString *message) {
         return [@"Ren'Py " stringByAppendingString:self.renpyVersion];
     }
     if (self.pythonTag.length) {
-        return [NSString stringWithFormat:@"Ren'Py %@ (Python %@)", self.detectedRuntime == 7 ? @"6/7" : @"8", self.pythonTag];
+        NSString *series = self.detectedRuntime == 7 ? @"6/7" : (self.detectedRuntime == 85 ? @"8.4+" : @"8.0-8.3");
+        return [NSString stringWithFormat:@"Ren'Py %@ (Python %@)", series, self.pythonTag];
     }
     return @"Ren'Py (versione sconosciuta)";
 }
@@ -102,7 +111,7 @@ NSError *RPError(NSString *message) {
 
 - (NSDictionary *)metadataDictionary {
     NSMutableDictionary *d = [NSMutableDictionary dictionary];
-    d[@"formatVersion"] = @1;
+    d[@"formatVersion"] = @2;
     d[@"title"] = self.title;
     d[@"baseSubpath"] = self.baseSubpath;
     d[@"renpyVersion"] = self.renpyVersion;
@@ -139,8 +148,8 @@ static NSInteger num(NSDictionary *d, NSString *k) {
     self.baseSubpath = str(d, @"baseSubpath");
     self.renpyVersion = str(d, @"renpyVersion");
     self.pythonTag = str(d, @"pythonTag");
-    self.detectedRuntime = num(d, @"detectedRuntime") == 7 ? 7 : 8;
-    self.runtimeOverride = num(d, @"runtimeOverride");
+    self.detectedRuntime = RPValidRuntime(num(d, @"detectedRuntime")) ? num(d, @"detectedRuntime") : 8;
+    self.runtimeOverride = RPValidRuntime(num(d, @"runtimeOverride")) ? num(d, @"runtimeOverride") : 0;
     self.confident = num(d, @"confident") != 0;
     self.newerThanRuntime = num(d, @"newerThanRuntime") != 0;
     self.evidence = str(d, @"evidence");
@@ -254,6 +263,15 @@ static NSInteger num(NSDictionary *d, NSString *k) {
         [g applyMetadata:d];
         if (g.title.length == 0) {
             g.title = folder;
+        }
+
+        /* Giochi importati prima dell'arrivo di Ren'Py 8.5: ricalcola il runtime. */
+        if (num(d, @"formatVersion") < 2) {
+            int newer = 0;
+            int py = g.detectedRuntime == 7 ? 2 : 3;
+            g.detectedRuntime = rp_choose_runtime(g.renpyVersion.UTF8String, py, g.pythonTag.UTF8String, &newer);
+            g.newerThanRuntime = newer != 0;
+            [g saveMetadata:nil];
         }
         return g;
     }

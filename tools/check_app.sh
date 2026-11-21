@@ -17,7 +17,9 @@ for p in \
     runtimes/rt7/base/lib/python2.7/site.pyo \
     runtimes/rt8/base/main.py \
     runtimes/rt8/base/renpy \
-    runtimes/rt8/base/lib/python3.9/site.pyc
+    runtimes/rt8/base/lib/python3.9/site.pyc \
+    runtimes/rt85/base/main.py \
+    runtimes/rt85/base/renpy
 do
     if [ -e "$APP/$p" ]; then
         echo "ok      $p"
@@ -29,6 +31,8 @@ done
 
 grep -q "RENPLAYER_SAVEDIR" "$APP/runtimes/rt7/base/main.py" || { echo "Patch dei salvataggi mancante (rt7)"; missing=1; }
 grep -q "RENPLAYER_SAVEDIR" "$APP/runtimes/rt8/base/main.py" || { echo "Patch dei salvataggi mancante (rt8)"; missing=1; }
+grep -q "RENPLAYER_SAVEDIR" "$APP/runtimes/rt85/base/main.py" || { echo "Patch dei salvataggi mancante (rt85)"; missing=1; }
+ls "$APP"/runtimes/rt85/base/lib/python3.*/site.pyc >/dev/null 2>&1 || { echo "MANCA   runtimes/rt85/base/lib/python3.x/site.pyc"; missing=1; }
 
 echo
 plutil -p "$APP/Info.plist" | grep -E "CFBundleIdentifier|CFBundleShortVersionString|MinimumOSVersion|UIFileSharingEnabled|LSSupportsOpeningDocumentsInPlace" || true

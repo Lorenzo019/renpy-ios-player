@@ -7,6 +7,7 @@
  *
  *   launcher_main   -> Ren'Py 8 (Python 3), linkato normalmente
  *   rp7_lnch_main   -> Ren'Py 7 (Python 2), prelinkato con i simboli nascosti
+ *   rp85lnch_main   -> Ren'Py 8.5 (Python 3.12), prelinkato con le sue librerie C
  *
  * argv[0] finto (runtimes/rtN/renplayer) fa sì che il runtime trovi la sua
  * cartella "base" (main.py, renpy/, lib/pythonX.Y) dentro il bundle.
@@ -21,6 +22,7 @@
 
 int launcher_main(int argc, char **argv);
 int rp7_lnch_main(int argc, char **argv);
+int rp85lnch_main(int argc, char **argv);
 int SDL_UIKitRunApp(int argc, char **argv, int (*mainFunction)(int, char **));
 
 static IMP gOrigOpenURL = NULL;
@@ -128,6 +130,8 @@ static int player_main(int argc, char **argv) {
     int rv;
     if (runtime == 7) {
         rv = rp7_lnch_main(4, args);
+    } else if (runtime == 85) {
+        rv = rp85lnch_main(4, args);
     } else {
         rv = launcher_main(4, args);
     }

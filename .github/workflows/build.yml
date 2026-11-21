@@ -14,6 +14,7 @@ permissions:
 env:
   RENPY7: "7.8.7"
   RENPY8: "8.3.7"
+  RENPY85: "8.5.3"
 
 jobs:
   core-tests:
@@ -39,9 +40,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: downloads
-          key: renpy-${{ env.RENPY7 }}-${{ env.RENPY8 }}-v1
+          key: renpy-${{ env.RENPY7 }}-${{ env.RENPY8 }}-${{ env.RENPY85 }}-v1
+          restore-keys: |
+            renpy-${{ env.RENPY7 }}-${{ env.RENPY8 }}-
 
-      - name: Scarica Ren'Py ${{ env.RENPY7 }} e ${{ env.RENPY8 }}
+      - name: Scarica Ren'Py ${{ env.RENPY7 }}, ${{ env.RENPY8 }} e ${{ env.RENPY85 }}
         run: bash tools/fetch_renpy.sh downloads work
 
       - name: Test del codice C anche su macOS
@@ -52,6 +55,7 @@ jobs:
           python3 tools/assemble.py \
             --renios7 work/renios7 --renios8 work/renios8 \
             --sdk7 work/sdk7 --sdk8 work/sdk8 \
+            --renios85 work/renios85 --sdk85 work/sdk85 \
             --out build/RenPlayer \
             --version "1.0.${{ github.run_number }}"
 

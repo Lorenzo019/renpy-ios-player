@@ -5,7 +5,7 @@ App per iPhone e iPad che avvia i giochi **Ren'Py** distribuiti per PC/Mac/Linux
 versione di Ren'Py serve e lo fa partire.
 
 - **Rilevamento automatico** della versione di Ren'Py e di Python (Ren'Py 6/7 → Python 2, Ren'Py 8 → Python 3)
-- **Due runtime in una sola app**: Ren'Py 7.8.7 e Ren'Py 8.3.7
+- **Tre motori in una sola app**: Ren'Py 7.8.7 (giochi 6 e 7), 8.3.7 (giochi 8.0–8.3) e 8.5.3 (giochi 8.4 e 8.5)
 - **Import diretto degli zip** (anche oltre 4 GB, Zip64), dall'app File, da iCloud o con "Condividi › RenPlayer"
 - **Salvataggi**: importa i `.save` e `persistent` dal PC (file, cartella o zip) ed esportali in uno zip
 - Log e `traceback.txt` consultabili dalla scheda del gioco
@@ -85,7 +85,8 @@ Scheda del gioco › **Log ed errori**: `traceback.txt` (scritto da Ren'Py) spie
 
 ## Limiti noti
 
-- I giochi creati con Ren'Py **più recente di 8.3.7** (8.4, 8.5…) vengono segnalati con ⚠️ e possono non funzionare.
+- I giochi creati con Ren'Py **più recente di 8.5.3** (8.6, che usa SDL3) vengono segnalati con ⚠️ e probabilmente non funzionano.
+- Su iOS non si può scaricare un motore dopo l'installazione: il codice nativo deve essere firmato dentro l'app. Per questo i motori sono inclusi nell'IPA.
 - Giochi molto grandi possono richiedere più memoria di quella che iOS concede a un'app.
 - I giochi che modificano il motore (cartella `renpy/` personalizzata) usano comunque il motore incluso.
 - Gli zip cifrati o compressi con metodi diversi da Deflate (es. Deflate64 di Windows per file > 2 GB) non sono supportati: ricomprimi con 7-Zip in formato zip standard.
@@ -97,10 +98,12 @@ Scheda del gioco › **Log ed errori**: `traceback.txt` (scritto da Ren'Py) spie
   versione di Python da `lib/`, `__pycache__`, `.pyo`).
 - `app/src/` — interfaccia UIKit (libreria, scheda del gioco, importazione, salvataggi) e `main.m`.
 - `tools/assemble.py` — parte dal progetto Xcode ufficiale di Ren'Py 8 (renios) e:
-  - prepara `runtimes/rt7/base` e `runtimes/rt8/base` (main.py, `renpy/` compilato, libreria standard);
-  - collega Ren'Py 8 normalmente e **prelinka Ren'Py 7** in un unico oggetto (`rt7/rp7.o`) con tutti i
-    simboli nascosti tranne il punto di ingresso, così Python 2 e Python 3 convivono nello stesso eseguibile;
-  - le librerie C (SDL2, FFmpeg, …) sono le stesse per i due runtime (stessa build di renpy-build).
+  - prepara `runtimes/rt7`, `rt8` e `rt85` (main.py, `renpy/` compilato, libreria standard);
+  - collega Ren'Py 8.3 normalmente e **prelinka** Ren'Py 7 (`rt7/rp7.o`) e Ren'Py 8.5 (`rt85/rp85.o`) in
+    oggetti con tutti i simboli nascosti tranne il punto di ingresso, così Python 2.7, 3.9 e 3.12
+    convivono nello stesso eseguibile;
+  - Ren'Py 7.8.7 usa le librerie C di 8.3.7 (stessa build); Ren'Py 8.5.3 porta le sue, tranne SDL2 e
+    SDL2_image, che sono le stesse versioni e devono essere uniche.
 - All'avvio SDL esegue `player_main`: mostra la libreria in un run loop annidato, poi chiude la finestra e
   chiama il runtime giusto con `basedir` = cartella del gioco e `--savedir` = `game/saves` del gioco.
 
@@ -112,8 +115,9 @@ python3 tests/test_core.py --big    # include zip da oltre 4 GB
 bash tests/objc_syntax_check.sh     # controllo di sintassi Objective-C su Linux (clang + GNUstep + stub)
 ```
 
-Le versioni dei runtime si cambiano in `.github/workflows/build.yml` (`RENPY7`, `RENPY8`).
-Devono provenire dalla stessa build di renpy-build (es. 7.8.7 e 8.3.7), perché condividono le librerie C.
+Le versioni dei runtime si cambiano in `.github/workflows/build.yml` (`RENPY7`, `RENPY8`, `RENPY85`).
+7.x e 8.3.x devono provenire dalla stessa build di renpy-build (es. 7.8.7 e 8.3.7), perché condividono le
+librerie C; la versione 8.5.x deve usare la stessa versione di SDL2 (2.0.20).
 
 ## Licenze
 

@@ -31,6 +31,10 @@ extern "C" {
 #define RP_RUNTIME8_VERSION "8.3.7"
 #endif
 
+#ifndef RP_RUNTIME85_VERSION
+#define RP_RUNTIME85_VERSION "8.5.3"
+#endif
+
 #define RP_ERRLEN 512
 
 /* ------------------------------------------------------------------------ */
@@ -99,7 +103,7 @@ typedef struct {
     char version[64];         /* es. "8.3.7.25031702", "7.4.10" oppure "" */
     int py_major;             /* 2, 3 oppure 0 se sconosciuto */
     char py_tag[16];          /* es. "2.7", "3.9", "3.12" */
-    int runtime;              /* 7 oppure 8 */
+    int runtime;              /* 7 (Ren'Py 7.8), 8 (Ren'Py 8.3) oppure 85 (Ren'Py 8.5) */
     int confident;            /* 1 se il runtime è stato scelto in base a prove */
     int newer_than_runtime;   /* 1 se il gioco usa un Ren'Py più nuovo del runtime */
     char evidence[512];       /* spiegazione breve, in italiano */
@@ -117,6 +121,14 @@ int rp_should_import(const char *path, const char *root, const char **rel);
 
 /* Ritorna 1 se il nome (ultimo componente) è un file di salvataggio Ren'Py. */
 int rp_is_save_file(const char *name);
+
+/* Sceglie il runtime: 7 = Ren'Py 7 (Python 2), 8 = Ren'Py 8.0-8.3 (Python 3.9),
+ * 85 = Ren'Py 8.4+ (Python 3.12). In *newer mette 1 se il gioco usa un
+ * Ren'Py più recente del runtime scelto. */
+int rp_choose_runtime(const char *version, int py_major, const char *py_tag, int *newer);
+
+/* Versione ("8.5.3") del runtime indicato. */
+const char *rp_runtime_version(int runtime);
 
 /* Confronta due versioni "a.b.c[.d]" sui primi tre numeri. */
 int rp_version_compare3(const char *a, const char *b);

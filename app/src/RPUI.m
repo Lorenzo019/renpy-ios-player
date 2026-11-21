@@ -339,9 +339,9 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
             cell.textLabel.text = row[0];
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
             if ([row[0] isEqualToString:@"Runtime"]) {
-                NSString *autoTitle = [NSString stringWithFormat:@"Auto (%ld)", (long) g.detectedRuntime];
-                UISegmentedControl *seg = [[UISegmentedControl alloc] initWithItems:@[ autoTitle, @"Ren'Py 7", @"Ren'Py 8" ]];
-                seg.selectedSegmentIndex = g.runtimeOverride == 7 ? 1 : (g.runtimeOverride == 8 ? 2 : 0);
+                NSString *autoTitle = [NSString stringWithFormat:@"Auto (%@)", RPRuntimeShortName(g.detectedRuntime)];
+                UISegmentedControl *seg = [[UISegmentedControl alloc] initWithItems:@[ autoTitle, @"7.8", @"8.3", @"8.5" ]];
+                seg.selectedSegmentIndex = g.runtimeOverride == 7 ? 1 : (g.runtimeOverride == 8 ? 2 : (g.runtimeOverride == 85 ? 3 : 0));
                 [seg addTarget:self action:@selector(runtimeChanged:) forControlEvents:UIControlEventValueChanged];
                 [seg sizeToFit];
                 cell.accessoryView = seg;
@@ -401,7 +401,7 @@ typedef NS_ENUM(NSInteger, RPGameSection) {
 
 - (void)runtimeChanged:(UISegmentedControl *)seg {
     NSInteger idx = seg.selectedSegmentIndex;
-    self.game.runtimeOverride = idx == 1 ? 7 : (idx == 2 ? 8 : 0);
+    self.game.runtimeOverride = idx == 1 ? 7 : (idx == 2 ? 8 : (idx == 3 ? 85 : 0));
     [self.game saveMetadata:nil];
     [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:RPSecPlay] withRowAnimation:UITableViewRowAnimationNone];
 }
@@ -607,7 +607,8 @@ static NSString *RPHelpText(void) {
         @"3. RenPlayer copia solo la cartella game/ (le parti per Windows non servono) e capisce da solo quale versione di Ren'Py serve.\n\n"
         @"RUNTIME INCLUSI\n"
         @"• Ren'Py %s (Python 2) per i giochi Ren'Py 6 e 7\n"
-        @"• Ren'Py %s (Python 3) per i giochi Ren'Py 8\n"
+        @"• Ren'Py %s (Python 3.9) per i giochi Ren'Py 8.0-8.3\n"
+        @"• Ren'Py %s (Python 3.12) per i giochi Ren'Py 8.4 e 8.5\n"
         @"Se il rilevamento sbaglia, puoi cambiare runtime nella scheda del gioco.\n\n"
         @"SALVATAGGI\n"
         @"Nella scheda del gioco puoi importare i salvataggi dal PC (file .save e persistent) ed esportarli in uno zip.\n\n"
@@ -620,7 +621,7 @@ static NSString *RPHelpText(void) {
         @"Se un gioco non parte, apri la sua scheda › Log ed errori: traceback.txt spiega quasi sempre il motivo.\n\n"
         @"LICENZE\n"
         @"RenPlayer include Ren'Py (licenza MIT) e librerie distribuite sotto GNU LGPL (tra cui SDL2 e FFmpeg) e altre licenze libere: www.renpy.org/doc/html/license.html",
-        RP_RUNTIME7_VERSION, RP_RUNTIME8_VERSION];
+        RP_RUNTIME7_VERSION, RP_RUNTIME8_VERSION, RP_RUNTIME85_VERSION];
 }
 
 /* ======================================================================== */
@@ -866,7 +867,7 @@ typedef NS_ENUM(NSInteger, RPPickMode) {
     cell.textLabel.text = g.title;
 
     NSMutableArray *parts = [NSMutableArray arrayWithObject:[g versionDescription]];
-    [parts addObject:[NSString stringWithFormat:@"runtime %ld", (long) g.runtime]];
+    [parts addObject:[NSString stringWithFormat:@"motore %@", RPRuntimeShortName(g.runtime)]];
     if (g.sizeBytes) {
         [parts addObject:[RPStore formatBytes:g.sizeBytes]];
     }

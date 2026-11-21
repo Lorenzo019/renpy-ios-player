@@ -12,6 +12,10 @@ extern NSString *const RPErrorDomain;
 
 NSError *RPError(NSString *message);
 
+/* Runtime: 7 = Ren'Py 7.8 (Python 2), 8 = Ren'Py 8.3 (Python 3.9), 85 = Ren'Py 8.5 (Python 3.12). */
+BOOL RPValidRuntime(NSInteger rt);
+NSString *RPRuntimeShortName(NSInteger rt);
+
 /* ------------------------------------------------------------------------ */
 
 @interface RPGame : NSObject
@@ -21,7 +25,7 @@ NSError *RPError(NSString *message);
 @property (nonatomic, copy) NSString *title;
 @property (nonatomic, copy) NSString *renpyVersion;    /* "" se sconosciuta */
 @property (nonatomic, copy) NSString *pythonTag;       /* "2.7", "3.9"... */
-@property (nonatomic) NSInteger detectedRuntime;       /* 7 o 8 */
+@property (nonatomic) NSInteger detectedRuntime;       /* 7, 8 o 85 */
 @property (nonatomic) NSInteger runtimeOverride;       /* 0 = automatico */
 @property (nonatomic) BOOL confident;
 @property (nonatomic) BOOL newerThanRuntime;
