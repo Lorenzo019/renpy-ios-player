@@ -71,11 +71,24 @@ def renios_prototype(path):
 
 
 def sdk_version(root):
-    fn = os.path.join(root, "renpy", "vc_version.py")
-    if os.path.exists(fn):
-        m = re.search(r"version\s*=\s*['\"]([0-9.]+)['\"]", open(fn, encoding="utf-8").read())
+    renpy = os.path.join(root, "renpy")
+    candidates = [os.path.join(renpy, n) for n in ("vc_version.py", "vc_version.pyo", "vc_version.pyc")]
+    pycache = os.path.join(renpy, "__pycache__")
+    if os.path.isdir(pycache):
+        candidates += [os.path.join(pycache, n) for n in sorted(os.listdir(pycache)) if n.startswith("vc_version.")]
+
+    for fn in candidates:
+        if not os.path.exists(fn):
+            continue
+        data = open(fn, "rb").read()
+        m = re.search(rb"(?<![0-9.])([6-9]\.\d+\.\d+\.\d+)(?![0-9.])", data)
         if m:
-            return m.group(1)
+            return m.group(1).decode()
+
+    # Ultima possibilità: il nome della cartella (renpy-7.8.7-sdk).
+    m = re.search(r"renpy-(\d+\.\d+\.\d+)", os.path.basename(os.path.abspath(root)))
+    if m:
+        return m.group(1)
     return "?"
 
 
